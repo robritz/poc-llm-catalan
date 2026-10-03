@@ -43,10 +43,32 @@ export default function Chat() {
   const [queued, setQueued] = useState(false);
   const [slowWait, setSlowWait] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // iOS Safari doesn't resize the layout when the keyboard opens; it scrolls
+  // the page instead. Pin the chat to the visible area so the header stays
+  // put and the input sits right above the keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = containerRef.current;
+    if (!vv || !el) return;
+    const sync = () => {
+      el.style.height = `${vv.height}px`;
+      el.style.transform = `translateY(${vv.offsetTop}px)`;
+      bottomRef.current?.scrollIntoView();
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!loading) return;
@@ -77,8 +99,11 @@ export default function Chat() {
   }
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-2xl flex-col px-4">
-      <header className="flex items-center justify-between border-b border-black/10 py-4 dark:border-white/10">
+    <div
+      ref={containerRef}
+      className="fixed inset-x-0 top-0 mx-auto flex h-dvh w-full max-w-2xl flex-col px-4"
+    >
+      <header className="flex shrink-0 items-center justify-between border-b border-black/10 py-4 dark:border-white/10">
         <h1 className="text-lg font-semibold">Xat en català</h1>
         {messages.length > 0 && (
           <button
@@ -94,7 +119,7 @@ export default function Chat() {
         )}
       </header>
 
-      <main className="flex-1 space-y-4 overflow-y-auto py-6">
+      <main className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-6">
         {messages.length === 0 && (
           <p className="pt-20 text-center text-black/40 dark:text-white/40">
             Escriu un missatge en qualsevol idioma. Et respondré en català.
@@ -126,13 +151,13 @@ export default function Chat() {
         <div ref={bottomRef} />
       </main>
 
-      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-black/10 py-4 dark:border-white/10">
+      <form onSubmit={handleSubmit} className="flex shrink-0 gap-2 border-t border-black/10 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-white/10">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Escriu un missatge…"
           autoFocus
-          className="flex-1 rounded-full border border-black/15 bg-transparent px-4 py-2 outline-none focus:border-blue-600 dark:border-white/20"
+          className="min-w-0 flex-1 rounded-full border border-black/15 bg-transparent px-4 py-2 text-base outline-none focus:border-blue-600 dark:border-white/20"
         />
         <button
           type="submit"

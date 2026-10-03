@@ -1,6 +1,11 @@
 import { startChat, type ChatMessage } from "@/lib/runpod";
+import { isUnlocked } from "@/lib/unlock";
 
 export async function POST(request: Request) {
+  if (!(await isUnlocked())) {
+    return Response.json({ status: "failed", error: "Locked" }, { status: 401 });
+  }
+
   const body = await request.json().catch(() => null);
   const messages: unknown = body?.messages;
 

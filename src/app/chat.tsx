@@ -35,7 +35,17 @@ async function sendMessages(
   return result.reply;
 }
 
-export default function Chat() {
+async function unlock(phrase: string): Promise<boolean> {
+  const res = await fetch("/api/unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phrase }),
+  });
+  return res.ok;
+}
+
+export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean }) {
+  const [unlocked, setUnlocked] = useState(initiallyUnlocked);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -81,6 +91,13 @@ export default function Chat() {
     const text = input.trim();
     if (!text || loading) return;
 
+    // Until unlocked, input is checked as the secret phrase, never sent to the model.
+    if (!unlocked) {
+      setInput("");
+      setUnlocked(await unlock(text));
+      return;
+    }
+
     const next: Message[] = [...messages, { role: "user", content: text }];
     setMessages(next);
     setInput("");
@@ -120,7 +137,12 @@ export default function Chat() {
       </header>
 
       <main className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-6">
-        {messages.length === 0 && (
+        {!unlocked && (
+          <p className="pt-20 text-center text-xs text-black/50 dark:text-white/50">
+            Please enter the secret phrase to start chatting.
+          </p>
+        )}
+        {unlocked && messages.length === 0 && (
           <p className="pt-20 text-center text-black/40 dark:text-white/40">
             Escriu un missatge en qualsevol idioma. Et respondré en català.
           </p>

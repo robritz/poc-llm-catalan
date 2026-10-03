@@ -27,8 +27,9 @@ Open http://localhost:3000.
 | -------------------- | --------------------------------------------------------------- |
 | `RUNPOD_API_KEY`     | RunPod API key with access to the endpoint                      |
 | `RUNPOD_ENDPOINT_ID` | The endpoint ID, e.g. `xdtr2cvjsqwsuu` from `api.runpod.ai/v2/<id>` |
+| `CHAT_SECRET_PHRASE` | Phrase users must type to unlock the chat (see below)           |
 
-Both are read only on the server, so the API key never reaches the browser. `.env.local` is git-ignored.
+All are read only on the server, so the API key never reaches the browser. `.env.local` is git-ignored.
 
 ## How it works
 
@@ -41,17 +42,28 @@ Browser ──POST /api/chat──────────▶ Next.js ──POST
 
 - The browser sends the whole conversation on every message. The server adds the system prompt and submits a RunPod job.
 - RunPod jobs are asynchronous, so the browser polls until the job finishes. The reply is read from `output[0].choices[0].message.content`, which is the OpenAI chat-completion format.
-- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. If a job is still `IN_QUEUE` after 10 seconds, the UI shows "AI is waking up from a nap. One moment, please." To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
+- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. If a job is still `IN_QUEUE` after 30 seconds, the UI shows "AI is waking up from a nap. One moment, please." To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
+
+## Secret phrase
+
+The chat is locked until the user types the secret phrase set in `CHAT_SECRET_PHRASE` (case and extra spaces are ignored). Until then, anything typed is checked as the phrase and never sent to the model, and the UI shows "Please enter the secret phrase to start chatting."
+
+The check runs on the server. `POST /api/unlock` sets an httpOnly cookie holding a hash of the phrase, and both chat API routes return `401` without it, so the model can't be reached by calling the API directly. The cookie lasts a year. To change the phrase, change `CHAT_SECRET_PHRASE` and restart the server; existing cookies stop working when you do. If the variable is missing, the page fails to load with an error rather than leaving the chat open.
+
+This is a light gate to keep casual visitors out, not real authentication. Anyone who knows the phrase gets in.
 
 ## Project layout
 
 | Path                                | Purpose                                                         |
 | ----------------------------------- | --------------------------------------------------------------- |
 | `src/lib/runpod.ts`                 | RunPod client: system prompt, job submission, status mapping    |
+| `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
+| `src/app/api/unlock/route.ts`       | `POST /api/unlock`: checks the phrase and sets the cookie       |
 | `src/app/api/chat/route.ts`         | `POST /api/chat`: validates messages and starts a job           |
 | `src/app/api/chat/[jobId]/route.ts` | `GET /api/chat/[jobId]`: job status for polling                 |
 | `src/app/chat.tsx`                  | Chat UI (client component)                                      |
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
+| `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 
 To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`. To change the timings, edit `POLL_INTERVAL_MS` and `WAKE_MESSAGE_DELAY_MS` in `src/app/chat.tsx`.
 

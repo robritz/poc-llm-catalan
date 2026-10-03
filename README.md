@@ -1,6 +1,6 @@
 # Xat en català
 
-A proof-of-concept chatbot that always replies in Catalan, whatever language you write in, to help aid in learning the language. It's a Next.js app that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint running [Salamandra 7B Instruct](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606).
+A proof-of-concept chatbot that always replies in [Catalan](https://en.wikipedia.org/wiki/Catalan_language), whatever language you write in, to help aid in learning the language. It's a Next.js app that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint running [Salamandra 7B Instruct](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606).
 
 ## Model and AINA Kit
 

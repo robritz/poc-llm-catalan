@@ -10,7 +10,7 @@ type ChatResult =
   | { status: "failed"; error: string };
 
 const POLL_INTERVAL_MS = 3_000;
-const WAKE_MESSAGE_DELAY_MS = 15_000;
+const WAKE_MESSAGE_DELAY_MS = 30_000;
 
 async function sendMessages(
   messages: Message[],

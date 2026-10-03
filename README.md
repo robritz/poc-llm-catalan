@@ -1,6 +1,12 @@
 # Xat en català
 
-A proof-of-concept chatbot that always replies in Catalan, whatever language you write in. It's a Next.js app that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint (currently `BSC-LT/salamandra-7b-instruct-2606`).
+A proof-of-concept chatbot that always replies in Catalan, whatever language you write in. It's a Next.js app that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint running [Salamandra 7B Instruct](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606).
+
+## Model and AINA Kit
+
+[Salamandra](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606) (`BSC-LT/salamandra-7b-instruct-2606`) is an instruction-tuned language model from the Language Technologies Laboratory at the Barcelona Supercomputing Center (BSC). It supports Catalan, Spanish, Basque, Galician and English, and is released under the Apache 2.0 license.
+
+[AINA Kit](https://langtech-bsc.gitbook.io/aina-kit) is BSC's collection of open models and datasets for building AI products and services in Catalan. It's a good place to look for other Catalan models and resources to use with or alongside this app.
 
 ## Getting started
 

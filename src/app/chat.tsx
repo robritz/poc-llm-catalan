@@ -141,9 +141,14 @@ export default function Chat() {
         {loading && (
           <div className="flex">
             <div className="rounded-2xl bg-black/5 px-4 py-2 text-black/50 dark:bg-white/10 dark:text-white/50">
-              {queued && slowWait ? "AI is waking up from a nap. One moment, please." : "Pensant…"}
+              Pensant…
             </div>
           </div>
+        )}
+        {loading && queued && slowWait && (
+          <p className="text-center text-xs text-black/50 dark:text-white/50">
+            AI is waking up from a nap. One moment, please.
+          </p>
         )}
         {error && (
           <p className="text-center text-sm text-red-600">Error: {error}</p>

@@ -42,7 +42,7 @@ Browser ──POST /api/chat──────────▶ Next.js ──POST
 
 - The browser sends the whole conversation on every message. The server adds the system prompt and submits a RunPod job.
 - RunPod jobs are asynchronous, so the browser polls until the job finishes. The reply is read from `output[0].choices[0].message.content`, which is the OpenAI chat-completion format.
-- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. If a job is still `IN_QUEUE` after 30 seconds, the UI shows "AI is waking up from a nap. One moment, please." This is shown only for the first cold start after the page loads. To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
+- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. To absorb that wait up front, each page load begins with an "Iniciar la sessió" button. It sends a hidden "say hello" message to wake the model, and the UI shows "La IA s'està despertant. Un moment, si us plau." until the greeting comes back; only then is the chat enabled. After that the message is never shown again; a slow reply later in the session just shows "Pensant…". To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
 
 ## Secret phrase
 
@@ -66,7 +66,7 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 
-To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`. To change the timings, edit `POLL_INTERVAL_MS` and `WAKE_MESSAGE_DELAY_MS` in `src/app/chat.tsx`.
+To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`. To change the polling interval or the session-start message, edit `POLL_INTERVAL_MS` and `GREETING_PROMPT` in `src/app/chat.tsx`.
 
 ## Mobile
 

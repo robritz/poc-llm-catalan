@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatResult } from "@/lib/chat";
 
 const POLL_INTERVAL_MS = 3_000;
-const WAKE_MESSAGE_DELAY_MS = 30_000;
 
-async function sendMessages(
-  messages: ChatMessage[],
-  onQueued: (queued: boolean) => void,
-): Promise<string> {
+// Sent when the session starts, to wake the model before the user chats.
+// Kept in the history so the model sees its own greeting, but never rendered.
+const GREETING_PROMPT: ChatMessage = { role: "user", content: "say hello" };
+
+async function sendMessages(messages: ChatMessage[]): Promise<string> {
   let res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -19,7 +19,6 @@ async function sendMessages(
 
   // Cold starts can take minutes; keep polling until the job settles.
   while (result.status === "pending") {
-    onQueued(result.queued);
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     res = await fetch(`/api/chat/${encodeURIComponent(result.jobId)}`);
     result = await res.json();
@@ -44,9 +43,8 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [queued, setQueued] = useState(false);
-  const [slowWait, setSlowWait] = useState(false);
-  const wakeMessageShown = useRef(false);
+  const [started, setStarted] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -75,17 +73,25 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     };
   }, []);
 
+  // The input is disabled until the session starts, so it can't autofocus.
   useEffect(() => {
-    if (!loading || wakeMessageShown.current) return;
-    const t = setTimeout(() => setSlowWait(true), WAKE_MESSAGE_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [loading]);
+    if (started) inputRef.current?.focus();
+  }, [started]);
 
-  // Only explain the cold start once; later slow replies just show "Pensant…".
-  const showWakeMessage = loading && queued && slowWait;
-  useEffect(() => {
-    if (showWakeMessage) wakeMessageShown.current = true;
-  }, [showWakeMessage]);
+  // Sends the history to the model and appends its reply.
+  async function ask(history: ChatMessage[]) {
+    setError(null);
+    setLoading(true);
+    try {
+      const reply = await sendMessages(history);
+      setMessages([...history, { role: "assistant", content: reply }]);
+      setStarted(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -98,23 +104,16 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       setUnlocked(await unlock(text));
       return;
     }
+    if (!started) return;
 
     const next: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(next);
     setInput("");
-    setError(null);
-    setQueued(false);
-    setSlowWait(false);
-    setLoading(true);
-    try {
-      const reply = await sendMessages(next, setQueued);
-      setMessages([...next, { role: "assistant", content: reply }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+    await ask(next);
   }
+
+  const inputDisabled = unlocked && !started;
+  const visibleMessages = messages.filter((m) => m !== GREETING_PROMPT);
 
   return (
     <div
@@ -143,12 +142,28 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             Please enter the secret phrase to start chatting.
           </p>
         )}
-        {unlocked && messages.length === 0 && (
+        {unlocked && !started && (
+          <div className="flex h-3/4 items-center justify-center">
+            {loading ? (
+              <p className="text-center text-xs text-black/50 dark:text-white/50">
+                La IA s&apos;està despertant. Un moment, si us plau.
+              </p>
+            ) : (
+              <button
+                onClick={() => ask([GREETING_PROMPT])}
+                className="rounded-full bg-blue-600 px-5 py-2 font-medium text-white"
+              >
+                Iniciar la sessió
+              </button>
+            )}
+          </div>
+        )}
+        {started && messages.length === 0 && (
           <p className="pt-20 text-center text-black/40 dark:text-white/40">
             Escriu un missatge en qualsevol idioma. Et respondré en català.
           </p>
         )}
-        {messages.map((m, i) => (
+        {visibleMessages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : "flex"}>
             <div
               className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 ${
@@ -161,17 +176,12 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             </div>
           </div>
         ))}
-        {loading && (
+        {started && loading && (
           <div className="flex">
             <div className="rounded-2xl bg-black/5 px-4 py-2 text-black/50 dark:bg-white/10 dark:text-white/50">
               Pensant…
             </div>
           </div>
-        )}
-        {showWakeMessage && (
-          <p className="text-center text-xs text-black/50 dark:text-white/50">
-            AI is waking up from a nap. One moment, please.
-          </p>
         )}
         {error && (
           <p className="text-center text-sm text-red-600">Error: {error}</p>
@@ -184,12 +194,14 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Escriu un missatge…"
+          ref={inputRef}
           autoFocus
-          className="min-w-0 flex-1 rounded-full border border-black/15 bg-transparent px-4 py-2 text-base outline-none focus:border-blue-600 dark:border-white/20"
+          disabled={inputDisabled}
+          className="min-w-0 flex-1 rounded-full border border-black/15 bg-transparent px-4 py-2 text-base outline-none focus:border-blue-600 disabled:opacity-40 dark:border-white/20"
         />
         <button
           type="submit"
-          disabled={loading || !input.trim()}
+          disabled={loading || inputDisabled || !input.trim()}
           className="rounded-full bg-blue-600 px-5 py-2 font-medium text-white disabled:opacity-40"
         >
           Envia

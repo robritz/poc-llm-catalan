@@ -1,4 +1,5 @@
-import { startChat, type ChatMessage } from "@/lib/runpod";
+import { isChatMessages } from "@/lib/chat";
+import { startChat } from "@/lib/runpod";
 import { isUnlocked } from "@/lib/unlock";
 
 export async function POST(request: Request) {
@@ -8,21 +9,12 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const messages: unknown = body?.messages;
-
-  const valid =
-    Array.isArray(messages) &&
-    messages.length > 0 &&
-    messages.every(
-      (m) =>
-        (m?.role === "user" || m?.role === "assistant") &&
-        typeof m?.content === "string",
-    );
-  if (!valid) {
+  if (!isChatMessages(messages)) {
     return Response.json({ status: "failed", error: "Invalid messages" }, { status: 400 });
   }
 
   try {
-    return Response.json(await startChat(messages as ChatMessage[]));
+    return Response.json(await startChat(messages));
   } catch (err) {
     console.error(err);
     return Response.json({ status: "failed", error: "Upstream error" }, { status: 502 });

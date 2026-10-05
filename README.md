@@ -42,7 +42,7 @@ Browser ──POST /api/chat──────────▶ Next.js ──POST
 
 - The browser sends the whole conversation on every message. The server adds the system prompt and submits a RunPod job.
 - RunPod jobs are asynchronous, so the browser polls until the job finishes. The reply is read from `output[0].choices[0].message.content`, which is the OpenAI chat-completion format.
-- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. If a job is still `IN_QUEUE` after 30 seconds, the UI shows "AI is waking up from a nap. One moment, please." To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
+- The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts. If a job is still `IN_QUEUE` after 30 seconds, the UI shows "AI is waking up from a nap. One moment, please." This is shown only for the first cold start after the page loads. To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
 
 ## Secret phrase
 
@@ -56,6 +56,7 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 
 | Path                                | Purpose                                                         |
 | ----------------------------------- | --------------------------------------------------------------- |
+| `src/lib/chat.ts`                   | Message and result types shared by browser and server, message validation |
 | `src/lib/runpod.ts`                 | RunPod client: system prompt, job submission, status mapping    |
 | `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
 | `src/app/api/unlock/route.ts`       | `POST /api/unlock`: checks the phrase and sets the cookie       |
@@ -78,4 +79,9 @@ npm run dev     # development server
 npm run build   # production build
 npm run start   # serve the production build
 npm run lint    # ESLint
+npm test        # Vitest in watch mode; `npm test -- run` for a single run
 ```
+
+## Tests
+
+Tests use [Vitest](https://vitest.dev) and React Testing Library, and sit next to the code they cover as `*.test.ts(x)`. They never call RunPod: `fetch`, cookies and the environment variables are stubbed.

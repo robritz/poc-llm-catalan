@@ -1,19 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-type Message = { role: "user" | "assistant"; content: string };
-
-type ChatResult =
-  | { status: "completed"; reply: string }
-  | { status: "pending"; jobId: string; queued: boolean }
-  | { status: "failed"; error: string };
+import type { ChatMessage, ChatResult } from "@/lib/chat";
 
 const POLL_INTERVAL_MS = 3_000;
 const WAKE_MESSAGE_DELAY_MS = 30_000;
 
 async function sendMessages(
-  messages: Message[],
+  messages: ChatMessage[],
   onQueued: (queued: boolean) => void,
 ): Promise<string> {
   let res = await fetch("/api/chat", {
@@ -46,12 +40,13 @@ async function unlock(phrase: string): Promise<boolean> {
 
 export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean }) {
   const [unlocked, setUnlocked] = useState(initiallyUnlocked);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
   const [slowWait, setSlowWait] = useState(false);
+  const wakeMessageShown = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -81,10 +76,16 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   }, []);
 
   useEffect(() => {
-    if (!loading) return;
+    if (!loading || wakeMessageShown.current) return;
     const t = setTimeout(() => setSlowWait(true), WAKE_MESSAGE_DELAY_MS);
     return () => clearTimeout(t);
   }, [loading]);
+
+  // Only explain the cold start once; later slow replies just show "Pensant…".
+  const showWakeMessage = loading && queued && slowWait;
+  useEffect(() => {
+    if (showWakeMessage) wakeMessageShown.current = true;
+  }, [showWakeMessage]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -98,7 +99,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       return;
     }
 
-    const next: Message[] = [...messages, { role: "user", content: text }];
+    const next: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(next);
     setInput("");
     setError(null);
@@ -167,7 +168,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             </div>
           </div>
         )}
-        {loading && queued && slowWait && (
+        {showWakeMessage && (
           <p className="text-center text-xs text-black/50 dark:text-white/50">
             AI is waking up from a nap. One moment, please.
           </p>

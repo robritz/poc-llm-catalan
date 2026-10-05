@@ -1,9 +1,6 @@
 import "server-only";
 
-export type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
+import type { ChatMessage, ChatResult } from "./chat";
 
 type JobStatus =
   | "IN_QUEUE"
@@ -23,12 +20,6 @@ type RunpodJob = {
   output?: ChatCompletion[] | ChatCompletion;
   error?: string;
 };
-
-// What our API returns to the browser.
-export type ChatResult =
-  | { status: "completed"; reply: string }
-  | { status: "pending"; jobId: string; queued: boolean }
-  | { status: "failed"; error: string };
 
 const SYSTEM_PROMPT =
   "You are a helpful assistant that writes concise responses. Regardless of the input from the user, respond only in català.";

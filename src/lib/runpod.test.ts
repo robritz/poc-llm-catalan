@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { generateText } from "ai";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { chatModel, SYSTEM_PROMPT } from "./runpod";
+import { chatModel, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "./runpod";
 
 const fetchMock = vi.fn();
 
@@ -41,6 +41,7 @@ describe("chatModel", () => {
   });
 });
 
-test("the system prompt asks for Catalan", () => {
+test("both prompts ask for Catalan", () => {
   expect(SYSTEM_PROMPT).toContain("català");
+  expect(TRANSLATION_PROMPT).toContain("català");
 });

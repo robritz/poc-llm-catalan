@@ -3,6 +3,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import Chat from "./chat";
 
+const GREETING = "say hello and include a random fact about catalonia.";
 const START_BUTTON = "Iniciar la sessió";
 const WAKE_MESSAGE = "La IA s'està despertant. Un moment, si us plau.";
 
@@ -143,10 +144,10 @@ describe("starting a session", () => {
 
     await clickStart();
 
-    expect(sentConversations()).toEqual([[{ role: "user", content: "say hello" }]]);
+    expect(sentConversations()).toEqual([[{ role: "user", content: GREETING }]]);
     expect(screen.getByText(WAKE_MESSAGE)).toBeDefined();
     expect(screen.queryByRole("button", { name: START_BUTTON })).toBeNull();
-    expect(screen.queryByText("say hello")).toBeNull();
+    expect(screen.queryByText(GREETING)).toBeNull();
     expect(screen.queryByText("Pensant…")).toBeNull();
     expect(input().disabled).toBe(true);
   });
@@ -163,7 +164,7 @@ describe("starting a session", () => {
 
     expect(screen.getByText("Hola!")).toBeDefined();
     expect(screen.queryByText(WAKE_MESSAGE)).toBeNull();
-    expect(screen.queryByText("say hello")).toBeNull();
+    expect(screen.queryByText(GREETING)).toBeNull();
     expect(screen.queryByRole("button", { name: START_BUTTON })).toBeNull();
     expect(input().disabled).toBe(false);
     expect(document.activeElement).toBe(input());
@@ -184,7 +185,7 @@ describe("starting a session", () => {
 
     expect(screen.getByText("Hola!")).toBeDefined();
     expect(screen.queryByText("Error: Upstream error")).toBeNull();
-    expect(sentConversations().at(-1)).toEqual([{ role: "user", content: "say hello" }]);
+    expect(sentConversations().at(-1)).toEqual([{ role: "user", content: GREETING }]);
   });
 });
 
@@ -197,7 +198,7 @@ describe("chatting", () => {
     expect(screen.getByText("Bon dia!")).toBeDefined();
 
     expect(sentConversations().at(-1)).toEqual([
-      { role: "user", content: "say hello" },
+      { role: "user", content: GREETING },
       { role: "assistant", content: "Hola!" },
       { role: "user", content: "Hello" },
     ]);

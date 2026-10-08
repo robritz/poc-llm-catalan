@@ -6,7 +6,11 @@ import { isUnlocked, tryUnlock } from "@/lib/unlock";
 import { POST as postChat } from "./chat/route";
 import { POST as postUnlock } from "./unlock/route";
 
-vi.mock("@/lib/runpod", () => ({ chatModel: vi.fn(), SYSTEM_PROMPT: "Respon en català." }));
+vi.mock("@/lib/runpod", () => ({
+  chatModel: vi.fn(),
+  SYSTEM_PROMPT: "Respon en català.",
+  TRANSLATION_PROMPT: "Tradueix al català.",
+}));
 vi.mock("@/lib/unlock");
 
 function post(path: string, body: unknown) {
@@ -85,6 +89,22 @@ describe("POST /api/chat", () => {
     expect(model.doStreamCalls[0].prompt).toEqual([
       { role: "system", content: "Respon en català." },
       { role: "user", content: [{ type: "text", text: "Hola" }] },
+    ]);
+  });
+
+  test("asks for a translation of a message that begins with /t", async () => {
+    const model = mockModel("On vius?");
+    const translation = [
+      ...messages,
+      { id: "2", role: "user", parts: [{ type: "text", text: "/t Where do you live?" }] },
+    ];
+    await (await postChat(post("/api/chat", { messages: translation }))).text();
+    expect(model.doStreamCalls[0].prompt).toEqual([
+      { role: "system", content: "Tradueix al català." },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Translate this text into català:\n\nWhere do you live?" }],
+      },
     ]);
   });
 

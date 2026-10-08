@@ -1,22 +1,38 @@
-import { isChatMessages } from "@/lib/chat";
-import { startChat } from "@/lib/runpod";
+import { createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
+import { toModelMessages } from "@/lib/chat";
+import { chatModel, SYSTEM_PROMPT } from "@/lib/runpod";
 import { isUnlocked } from "@/lib/unlock";
+
+// The request stays open while a cold worker starts, which can take minutes.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   if (!(await isUnlocked())) {
-    return Response.json({ status: "failed", error: "Locked" }, { status: 401 });
+    return new Response("Locked", { status: 401 });
   }
 
   const body = await request.json().catch(() => null);
-  const messages: unknown = body?.messages;
-  if (!isChatMessages(messages)) {
-    return Response.json({ status: "failed", error: "Invalid messages" }, { status: 400 });
+  const messages = toModelMessages(body?.messages);
+  if (!messages) {
+    return new Response("Invalid messages", { status: 400 });
   }
 
   try {
-    return Response.json(await startChat(messages));
+    const result = streamText({
+      model: chatModel(),
+      instructions: SYSTEM_PROMPT,
+      messages,
+      onError: ({ error }) => console.error(error),
+    });
+    return createUIMessageStreamResponse({
+      stream: toUIMessageStream({
+        stream: result.stream,
+        // Don't leak upstream details to the browser.
+        onError: () => "Upstream error",
+      }),
+    });
   } catch (err) {
     console.error(err);
-    return Response.json({ status: "failed", error: "Upstream error" }, { status: 502 });
+    return new Response("Upstream error", { status: 502 });
   }
 }

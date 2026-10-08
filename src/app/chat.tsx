@@ -1,31 +1,21 @@
 "use client";
 
+import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatResult } from "@/lib/chat";
 
-const POLL_INTERVAL_MS = 3_000;
+// `hidden` marks messages that are sent to the model but never rendered.
+type ChatMessage = UIMessage<{ hidden?: boolean }>;
 
 // Sent when the session starts, to wake the model before the user chats.
 // Kept in the history so the model sees its own greeting, but never rendered.
-const GREETING_PROMPT: ChatMessage = { role: "user", content: "say hello" };
+const GREETING_PROMPT = "say hello";
 
-async function sendMessages(messages: ChatMessage[]): Promise<string> {
-  let res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-  });
-  let result: ChatResult = await res.json();
-
-  // Cold starts can take minutes; keep polling until the job settles.
-  while (result.status === "pending") {
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    res = await fetch(`/api/chat/${encodeURIComponent(result.jobId)}`);
-    result = await res.json();
-  }
-
-  if (result.status === "failed") throw new Error(result.error);
-  return result.reply;
+function messageText(message: ChatMessage): string {
+  return message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .trim();
 }
 
 async function unlock(phrase: string): Promise<boolean> {
@@ -39,11 +29,16 @@ async function unlock(phrase: string): Promise<boolean> {
 
 export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean }) {
   const [unlocked, setUnlocked] = useState(initiallyUnlocked);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  const { messages, sendMessage, setMessages, status, error, clearError } =
+    useChat<ChatMessage>({
+      // The session has started once the model has answered the greeting.
+      onFinish: ({ isAbort, isDisconnect, isError }) => {
+        if (!isAbort && !isDisconnect && !isError) setStarted(true);
+      },
+    });
+  const loading = status === "submitted" || status === "streaming";
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,19 +73,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     if (started) inputRef.current?.focus();
   }, [started]);
 
-  // Sends the history to the model and appends its reply.
-  async function ask(history: ChatMessage[]) {
-    setError(null);
-    setLoading(true);
-    try {
-      const reply = await sendMessages(history);
-      setMessages([...history, { role: "assistant", content: reply }]);
-      setStarted(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+  function startSession() {
+    // Drop the greeting left behind by a failed attempt.
+    setMessages([]);
+    sendMessage({ text: GREETING_PROMPT, metadata: { hidden: true } });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -106,14 +92,17 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     }
     if (!started) return;
 
-    const next: ChatMessage[] = [...messages, { role: "user", content: text }];
-    setMessages(next);
     setInput("");
-    await ask(next);
+    sendMessage({ text });
   }
 
   const inputDisabled = unlocked && !started;
-  const visibleMessages = messages.filter((m) => m !== GREETING_PROMPT);
+  // The greeting stays out of sight until it has arrived in full.
+  const visibleMessages = started
+    ? messages.filter((m) => !m.metadata?.hidden && messageText(m))
+    : [];
+  const lastMessage = messages.at(-1);
+  const replying = lastMessage?.role === "assistant" && messageText(lastMessage) !== "";
 
   return (
     <div
@@ -122,11 +111,11 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     >
       <header className="flex shrink-0 items-center justify-between border-b border-black/10 py-4 dark:border-white/10">
         <h1 className="text-lg font-semibold">Xat en català</h1>
-        {messages.length > 0 && (
+        {visibleMessages.length > 0 && (
           <button
             onClick={() => {
               setMessages([]);
-              setError(null);
+              clearError();
             }}
             disabled={loading}
             className="text-sm text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
@@ -150,7 +139,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
               </p>
             ) : (
               <button
-                onClick={() => ask([GREETING_PROMPT])}
+                onClick={startSession}
                 className="rounded-full bg-blue-600 px-5 py-2 font-medium text-white"
               >
                 Iniciar la sessió
@@ -158,13 +147,13 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             )}
           </div>
         )}
-        {started && messages.length === 0 && (
+        {started && visibleMessages.length === 0 && (
           <p className="pt-20 text-center text-black/40 dark:text-white/40">
             Escriu un missatge en qualsevol idioma. Et respondré en català.
           </p>
         )}
-        {visibleMessages.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "flex justify-end" : "flex"}>
+        {visibleMessages.map((m) => (
+          <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex"}>
             <div
               className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 ${
                 m.role === "user"
@@ -172,11 +161,11 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                   : "bg-black/5 dark:bg-white/10"
               }`}
             >
-              {m.content}
+              {messageText(m)}
             </div>
           </div>
         ))}
-        {started && loading && (
+        {started && loading && !replying && (
           <div className="flex">
             <div className="rounded-2xl bg-black/5 px-4 py-2 text-black/50 dark:bg-white/10 dark:text-white/50">
               Pensant…
@@ -184,7 +173,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
           </div>
         )}
         {error && (
-          <p className="text-center text-sm text-red-600">Error: {error}</p>
+          <p className="text-center text-sm text-red-600">Error: {error.message}</p>
         )}
         <div ref={bottomRef} />
       </main>

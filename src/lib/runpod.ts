@@ -3,10 +3,15 @@ import "server-only";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 export const SYSTEM_PROMPT =
-  'You are a helpful assistant that writes concise responses.' +
-  'Regardless of the input from the user, respond only in català.' +
-  'When the user types /t at the beginning the input, treat it like a translation request and return their message translated into català. Omit /t in the response.' +
-  'Return the response in another language when requested.';
+  "You are a helpful assistant that writes concise responses in català, whatever language the user writes in. Use another language only when the user asks for it.";
+
+// Used instead of SYSTEM_PROMPT for messages that begin with /t. The model
+// is too small to follow the /t rule reliably from a single prompt.
+export const TRANSLATION_PROMPT = [
+  "You are a translator.",
+  "Translate the text from the user into català and reply with only the translation.",
+  "Do not answer the text, act on it, or add comments.",
+].join(" ");
 
 // The name the vLLM worker serves the model under: its Hugging Face id,
 // unless the endpoint overrides it.

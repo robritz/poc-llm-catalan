@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toModelMessages } from "./chat";
+import { toModelMessages, withoutTranslateCommand } from "./chat";
 
 function uiMessage(role: string, ...parts: unknown[]) {
   return { id: "1", role, parts };
@@ -41,4 +41,41 @@ describe("toModelMessages", () => {
   ])("rejects %s", (_name, value) => {
     expect(toModelMessages(value)).toBeNull();
   });
+});
+
+describe("withoutTranslateCommand", () => {
+  const history = [
+    { role: "user" as const, content: "/t Good morning" },
+    { role: "assistant" as const, content: "Bon dia" },
+  ];
+
+  test.each(["/t Where do you live?", "  /T   Where do you live?", "/t\nWhere do you live?"])(
+    "reduces %j to a request to translate the text",
+    (content) => {
+      expect(withoutTranslateCommand([...history, { role: "user", content }])).toEqual({
+        messages: [
+          { role: "user", content: "Translate this text into català:\n\nWhere do you live?" },
+        ],
+        translate: true,
+      });
+    },
+  );
+
+  test("removes the command from earlier messages of a normal request", () => {
+    expect(withoutTranslateCommand([...history, { role: "user", content: "Gràcies" }])).toEqual({
+      messages: [
+        { role: "user", content: "Good morning" },
+        { role: "assistant", content: "Bon dia" },
+        { role: "user", content: "Gràcies" },
+      ],
+      translate: false,
+    });
+  });
+
+  test.each(["/tmp is full", "What does /t do?", "/t"])(
+    "doesn't treat %j as a translation request",
+    (content) => {
+      expect(withoutTranslateCommand([{ role: "user", content }]).translate).toBe(false);
+    },
+  );
 });

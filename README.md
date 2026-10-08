@@ -40,6 +40,7 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 ```
 
 - The browser uses the AI SDK's `useChat` hook, which sends the whole conversation on every message. The server keeps only the user and assistant text, adds the system prompt, and calls the model with `streamText` through the endpoint's OpenAI-compatible API (`/openai/v1`).
+- A message that begins with `/t` is translated into Catalan instead of answered. The server spots the command, removes it, and sends only that text to the model with a translation prompt in place of the usual system prompt; the model is too small to follow a `/t` rule reliably from the system prompt alone.
 - The reply is streamed back and shown as it is written. Until the first words arrive, the UI shows "Pensant…".
 - The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts, and the request stays open for all of that time. To absorb that wait up front, each page load begins with an "Iniciar la sessió" button. It sends a hidden "say hello" message to wake the model, and the UI shows "La IA s'està despertant. Un moment, si us plau." until the greeting comes back; only then is the chat enabled. After that the message is never shown again; a slow reply later in the session just shows "Pensant…". To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
 - Because the request stays open during a cold start, `/api/chat` sets `maxDuration` to 300 seconds. If your host caps function time below the cold start, the session start fails with an error and can be retried once the worker is up.
@@ -65,7 +66,7 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 
-To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`. To change the session-start message, edit `GREETING_PROMPT` in `src/app/chat.tsx`.
+To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`; `TRANSLATION_PROMPT` in the same file is used for `/t` messages. To change the session-start message, edit `GREETING_PROMPT` in `src/app/chat.tsx`.
 
 ## Mobile
 

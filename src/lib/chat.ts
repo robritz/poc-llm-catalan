@@ -28,3 +28,29 @@ export function toModelMessages(value: unknown): ModelMessage[] | null {
   }
   return messages.length > 0 ? messages : null;
 }
+
+// Typed before a message to have it translated instead of answered.
+const TRANSLATE_COMMAND = /^\s*\/t(\s+|$)/i;
+
+// Splits off the /t command. A request for a translation is reduced to the
+// text to translate; otherwise the command is removed from earlier messages
+// so the model never sees it.
+export function withoutTranslateCommand(messages: ModelMessage[]): {
+  messages: ModelMessage[];
+  translate: boolean;
+} {
+  const strip = (m: ModelMessage): ModelMessage =>
+    m.role === "user" && typeof m.content === "string"
+      ? { ...m, content: m.content.replace(TRANSLATE_COMMAND, "") }
+      : m;
+  const last = messages[messages.length - 1];
+  const stripped = strip(last);
+  if (last.role === "user" && stripped.content !== last.content && stripped.content) {
+    const content = `Translate this text into català:\n\n${stripped.content}`;
+    return { messages: [{ role: "user", content }], translate: true };
+  }
+  return {
+    messages: messages.map(strip).filter((m) => m.content),
+    translate: false,
+  };
+}

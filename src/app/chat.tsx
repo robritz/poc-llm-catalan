@@ -9,7 +9,7 @@ type ChatMessage = UIMessage<{ hidden?: boolean }>;
 
 // Sent when the session starts, to wake the model before the user chats.
 // Kept in the history so the model sees its own greeting, but never rendered.
-const GREETING_PROMPT = "say hello";
+const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 
 function messageText(message: ChatMessage): string {
   return message.parts

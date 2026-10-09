@@ -22,7 +22,7 @@ Storage that cannot be read
 Other tabs
 
 - [ ] Every write reads the stored list at that moment, applies its one change, and writes the result. It never writes back a list the page is holding in memory.
-- [ ] An exchange saved in another tab appears in an open list in this tab without a reload, and its reply in this tab's conversation shows a filled bookmark when next held.
+- [ ] An exchange saved in another tab appears in an open list in this tab without a reload, and its reply in this tab's conversation shows a filled bookmark when next tapped.
 - [ ] After another tab has saved an exchange, a save, move or delete in this tab keeps that exchange.
 - [ ] A move or delete whose target another tab has already removed changes nothing.
 - [ ] When another tab deletes the row that is open in this tab, the row goes and no row is open.

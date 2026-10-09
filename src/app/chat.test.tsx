@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import Chat from "./chat";
 
 const GREETING = "say hello and include a random fact about catalonia.";
@@ -9,6 +9,11 @@ const WAKE_MESSAGE = "La IA s'està despertant. Un moment, si us plau.";
 const LISTEN_BUTTON = "Escolta";
 const MUTE_BUTTON = "Silencia";
 const TRANSLATE_TOGGLE = "Tradueix";
+const SAVE_TOGGLE = "Desa";
+const SAVED_BUTTON = "Desats";
+const BACK_BUTTON = "Torna al xat";
+const NOTHING_SAVED =
+  "Encara no has desat res. Toca una resposta i després el marcador per desar-la.";
 
 // What the fake API does with the next chat request: stream a reply, fail,
 // or (for a pending promise) keep the request open like a cold start.
@@ -104,14 +109,11 @@ async function renderStarted() {
   answer = reply("Bon dia!");
 }
 
-// Presses a message without letting go, for the given time.
-function hold(text: string, ms: number) {
-  vi.useFakeTimers();
-  fireEvent.pointerDown(screen.getByText(text));
-  act(() => {
-    vi.advanceTimersByTime(ms);
-  });
-  vi.useRealTimers();
+// Taps a message or reply as a finger would: the press comes before the click.
+function tap(element: Element | string) {
+  const target = typeof element === "string" ? screen.getByText(element) : element;
+  fireEvent.pointerDown(target);
+  fireEvent.click(target);
 }
 
 async function clickListen() {
@@ -135,6 +137,43 @@ function replyMuteIsAbove(text: string) {
 // The mute button in the header, if there is one.
 function headerMute() {
   return within(screen.getByRole("banner")).queryByRole("button", { name: MUTE_BUTTON });
+}
+
+// The bookmark under the reply that was tapped.
+function saveToggle() {
+  return screen.getByRole<HTMLButtonElement>("button", { name: SAVE_TOGGLE });
+}
+
+// Presses the bookmark as a finger would: the press comes before the click.
+function pressSaveToggle() {
+  fireEvent.pointerDown(saveToggle());
+  fireEvent.click(saveToggle());
+}
+
+// Taps a reply and presses the bookmark under it.
+function toggleSaved(replyText: string) {
+  tap(replyText);
+  pressSaveToggle();
+}
+
+function openSaved() {
+  fireEvent.click(screen.getByRole("button", { name: SAVED_BUTTON }));
+}
+
+function backToChat() {
+  fireEvent.click(screen.getByRole("button", { name: BACK_BUTTON }));
+}
+
+// The row of a saved exchange: the button that carries its message.
+function savedRow(message: string) {
+  return screen.getByRole("button", { name: message });
+}
+
+// The messages of the saved exchanges, in the order the list shows them.
+function savedMessages() {
+  return within(screen.getByRole("list"))
+    .getAllByRole("button")
+    .map((row) => row.textContent);
 }
 
 // The text of each conversation sent to the model.
@@ -164,6 +203,7 @@ function translateToggle() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockClear();
   // jsdom doesn't implement scrollIntoView.
@@ -175,10 +215,6 @@ beforeEach(() => {
   // jsdom doesn't implement object URLs.
   URL.createObjectURL = vi.fn(() => "blob:speech");
   URL.revokeObjectURL = vi.fn();
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 describe("locked", () => {
@@ -472,33 +508,53 @@ describe("cold start after the session has started", () => {
 });
 
 describe("hearing a reply", () => {
-  test("offers to speak a reply that is held for half a second", async () => {
+  test("offers to speak a reply that is tapped", async () => {
     await renderStarted();
-
-    hold("Hola!", 499);
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
 
-    hold("Hola!", 500);
+    tap("Hola!");
+
     // The offer is a speaker icon, named for screen readers but with no word on it.
     const button = screen.getByRole("button", { name: LISTEN_BUTTON });
     expect(button.textContent).toBe("");
     expect(button.querySelector("svg")).not.toBeNull();
   });
 
-  test("doesn't offer it when the reply is let go early, or for the user's own message", async () => {
+  test("withdraws the offer when the reply is tapped again", async () => {
+    await renderStarted();
+    tap("Hola!");
+
+    tap("Hola!");
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("moves the offer to another reply that is tapped", async () => {
+    await renderStarted();
+    await send("Hello");
+    tap("Hola!");
+
+    tap("Bon dia!");
+
+    expect(screen.getAllByRole("button", { name: LISTEN_BUTTON })).toHaveLength(1);
+    expect(saveToggle()).toBeDefined();
+  });
+
+  test("doesn't offer it for the user's own message", async () => {
     await renderStarted();
     await send("Hello");
 
-    vi.useFakeTimers();
-    fireEvent.pointerDown(screen.getByText("Hola!"));
-    act(() => {
-      vi.advanceTimersByTime(250);
-    });
-    fireEvent.pointerUp(screen.getByText("Hola!"));
-    act(() => {
-      vi.advanceTimersByTime(5000);
-    });
-    hold("Hello", 5000);
+    tap("Hello");
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("doesn't offer it when a link in the reply is tapped", async () => {
+    await renderStarted();
+    answer = reply("Mira [Viquipèdia](https://ca.wikipedia.org)");
+    await send("Hello");
+
+    tap(screen.getByRole("link", { name: "Viquipèdia" }));
 
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
@@ -508,14 +564,14 @@ describe("hearing a reply", () => {
     coldStart();
     await send("Hello");
 
-    hold("Hola!", 500);
+    tap("Hola!");
 
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
   test("withdraws the offer when something else is pressed", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
 
     fireEvent.pointerDown(input());
 
@@ -524,7 +580,7 @@ describe("hearing a reply", () => {
 
   test("speaks the reply when the offer is taken", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
 
     await clickListen();
 
@@ -539,7 +595,7 @@ describe("hearing a reply", () => {
     await renderStarted();
     let resolve!: (res: Response) => void;
     speech = new Promise((r) => (resolve = r));
-    hold("Hola!", 500);
+    tap("Hola!");
 
     await clickListen();
 
@@ -557,7 +613,7 @@ describe("hearing a reply", () => {
     await renderStarted();
     let resolve!: (res: Response) => void;
     speech = new Promise((r) => (resolve = r));
-    hold("Hola!", 500);
+    tap("Hola!");
 
     await clickListen();
     expect(replyMute()).toBeNull();
@@ -576,7 +632,7 @@ describe("hearing a reply", () => {
     ["in the header", headerMute],
   ])("ends the sound when it is muted %s", async (_, muteButton) => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
     expect(FakeAudio.current.paused).toBe(false);
 
@@ -585,13 +641,26 @@ describe("hearing a reply", () => {
     expect(FakeAudio.current.paused).toBe(true);
     expect(replyMute()).toBeNull();
     expect(headerMute()).toBeNull();
-    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    // The offer is still open, so the reply can be spoken again from there.
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
   });
 
-  test("withdraws the mute button when the speech ends", async () => {
+  test("offers to speak the reply again when the speech ends", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
+
+    act(() => FakeAudio.current.onended!());
+
+    expect(replyMute()).toBeNull();
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+  });
+
+  test("leaves nothing under the reply when the speech ends after the offer was dismissed", async () => {
+    await renderStarted();
+    tap("Hola!");
+    await clickListen();
+    fireEvent.pointerDown(input());
 
     act(() => FakeAudio.current.onended!());
 
@@ -599,9 +668,21 @@ describe("hearing a reply", () => {
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
+  test("withdraws an unused offer when the mute button under another reply is pressed", async () => {
+    await renderStarted();
+    await send("Hello");
+    tap("Hola!");
+    await clickListen();
+    tap("Bon dia!");
+
+    fireEvent.pointerDown(replyMute()!);
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
   test("keeps the mute buttons when something else is pressed", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
     fireEvent.pointerDown(input());
@@ -611,13 +692,13 @@ describe("hearing a reply", () => {
     expect(FakeAudio.current.paused).toBe(false);
   });
 
-  test("keeps speaking a reply while another reply is held", async () => {
+  test("keeps speaking a reply while another reply is tapped", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
 
     expect(FakeAudio.current.paused).toBe(false);
     // The mute button stays under the reply being spoken, above the next reply.
@@ -628,11 +709,11 @@ describe("hearing a reply", () => {
   test("speaks one reply at a time: a second reply takes over from the first", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
     speech = new Response("wav");
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
     await clickListen();
 
     expect(played).toHaveLength(2);
@@ -645,11 +726,11 @@ describe("hearing a reply", () => {
     await send("Hello");
     let resolve!: (res: Response) => void;
     speech = new Promise((r) => (resolve = r));
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
     speech = new Response("wav");
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
     await clickListen();
     await act(async () => resolve(new Response("wav")));
     await settle();
@@ -663,12 +744,12 @@ describe("hearing a reply", () => {
   test("keeps speaking a reply until the next one has loaded", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
     let resolve!: (res: Response) => void;
     speech = new Promise((r) => (resolve = r));
 
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
     await clickListen();
 
     expect(FakeAudio.current.paused).toBe(false);
@@ -686,10 +767,10 @@ describe("hearing a reply", () => {
   test("withdraws the mute buttons when a reply ends while the next one is loading", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
     speech = new Promise(() => {});
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
     await clickListen();
 
     act(() => FakeAudio.current.onended!());
@@ -700,11 +781,10 @@ describe("hearing a reply", () => {
 
   test("speaks a muted reply again from the start without preparing the audio again", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
     fireEvent.click(replyMute()!);
 
-    hold("Hola!", 500);
     await clickListen();
 
     expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak")).toHaveLength(1);
@@ -716,7 +796,7 @@ describe("hearing a reply", () => {
   test("shows a mute button in the header for as long as a reply is being spoken", async () => {
     await renderStarted();
     expect(headerMute()).toBeNull();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
     expect(headerMute()).not.toBeNull();
@@ -729,7 +809,7 @@ describe("hearing a reply", () => {
   test("ends the sound when the conversation is cleared", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
     await clickListen();
     expect(FakeAudio.current.paused).toBe(false);
 
@@ -742,9 +822,9 @@ describe("hearing a reply", () => {
   test("withdraws an unused offer, but not the mute buttons, when something else is pressed", async () => {
     await renderStarted();
     await send("Hello");
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
-    hold("Bon dia!", 500);
+    tap("Bon dia!");
 
     fireEvent.pointerDown(input());
 
@@ -755,10 +835,10 @@ describe("hearing a reply", () => {
 
   test("doesn't offer to speak the reply that is being spoken, even once it ends", async () => {
     await renderStarted();
-    hold("Hola!", 500);
+    tap("Hola!");
     await clickListen();
 
-    hold("Hola!", 500);
+    tap("Hola!");
     act(() => FakeAudio.current.onended!());
 
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
@@ -767,11 +847,265 @@ describe("hearing a reply", () => {
   test("says so when the reply can't be spoken", async () => {
     await renderStarted();
     speech = new Response("Upstream error", { status: 502 });
-    hold("Hola!", 500);
+    tap("Hola!");
 
     await clickListen();
 
     expect(screen.getByText("No s'ha pogut reproduir l'àudio.")).toBeDefined();
     expect(played).toEqual([]);
+  });
+});
+
+describe("saving an exchange", () => {
+  test("saves the exchange of a tapped reply and lists it under its message", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    tap("Bon dia!");
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+    const outline = saveToggle().innerHTML;
+    pressSaveToggle();
+
+    // The offer stays, and the bookmark shows the exchange is saved.
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(saveToggle().innerHTML).not.toBe(outline);
+
+    openSaved();
+
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+
+    fireEvent.click(savedRow("Hello"));
+
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+  });
+
+  test("unsaves the exchange when the bookmark is pressed again", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("treats the same message with the same reply as one exchange", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    answer = reply("Bon dia!");
+    await send("Hello");
+
+    // The second reply says the same as the first, which is saved.
+    tap(screen.getAllByText("Bon dia!")[1]);
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+  });
+
+  test("keeps two replies to the same message apart, the newest first", async () => {
+    await renderStarted();
+    await send("Hello");
+    answer = reply("Bona tarda!");
+    await send("Hello");
+    answer = reply("De res!");
+    await send("Thanks");
+
+    toggleSaved("Bon dia!");
+    toggleSaved("Bona tarda!");
+    toggleSaved("De res!");
+    openSaved();
+
+    expect(savedMessages()).toEqual(["Thanks", "Hello", "Hello"]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Hello" })[0]);
+    expect(screen.getByText("Bona tarda!")).toBeDefined();
+    // The other reply to "Hello" stays closed.
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+  });
+
+  test("doesn't offer to save the greeting, which answers no message", async () => {
+    await renderStarted();
+
+    tap("Hola!");
+
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+    expect(screen.queryByRole("button", { name: SAVE_TOGGLE })).toBeNull();
+  });
+
+  test("still offers to save a reply once it is being spoken", async () => {
+    await renderStarted();
+    await send("Hello");
+    tap("Bon dia!");
+    await clickListen();
+
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(replyMute()).not.toBeNull();
+  });
+
+  test("offers to save a reply that is tapped while it is being spoken", async () => {
+    await renderStarted();
+    await send("Hello");
+    tap("Bon dia!");
+    await clickListen();
+    fireEvent.pointerDown(input());
+
+    tap("Bon dia!");
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(replyMute()).not.toBeNull();
+    expect(FakeAudio.current.paused).toBe(false);
+  });
+
+  test("keeps saved exchanges when the conversation is cleared and in a later session", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    fireEvent.click(screen.getByText("Nova conversa"));
+
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+
+    cleanup();
+    await renderStarted();
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+
+    // The same message and reply, met again, are already saved.
+    backToChat();
+    await send("Hello");
+    tap("Bon dia!");
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("the saved exchanges", () => {
+  test("can be opened once unlocked, before the session starts and while the model wakes", async () => {
+    render(<Chat initiallyUnlocked />);
+
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+
+    backToChat();
+    coldStart();
+    await clickStart();
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("can't be opened while locked", () => {
+    render(<Chat initiallyUnlocked={false} />);
+
+    expect(screen.queryByRole("button", { name: SAVED_BUTTON })).toBeNull();
+  });
+
+  test("take the place of the conversation, its input and Nova conversa", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+
+    openSaved();
+
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText("Nova conversa")).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVED_BUTTON })).toBeNull();
+  });
+
+  test("show one reply at a time, and none when the list is opened again", async () => {
+    await renderStarted();
+    await send("Hello");
+    answer = reply("De res!");
+    await send("Thanks");
+    toggleSaved("Bon dia!");
+    toggleSaved("De res!");
+    openSaved();
+
+    fireEvent.click(savedRow("Hello"));
+    fireEvent.click(savedRow("Thanks"));
+
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+    expect(screen.getByText("De res!")).toBeDefined();
+
+    fireEvent.click(savedRow("Thanks"));
+    expect(screen.queryByText("De res!")).toBeNull();
+
+    fireEvent.click(savedRow("Hello"));
+    backToChat();
+    openSaved();
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("format a saved reply as the conversation does", async () => {
+    await renderStarted();
+    answer = reply("**Molt** bé: [Viquipèdia](https://ca.wikipedia.org) ![foto](https://example.com/a.png)");
+    await send("Hello");
+    toggleSaved("Molt");
+    openSaved();
+
+    fireEvent.click(savedRow("Hello"));
+
+    expect(screen.getByText("Molt").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "Viquipèdia" }).getAttribute("target")).toBe("_blank");
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  test("don't offer to speak or save a reply that is tapped", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    tap("Bon dia!");
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVE_TOGGLE })).toBeNull();
+  });
+
+  test("leave the conversation scrolled to where it was", async () => {
+    await renderStarted();
+    await send("Hello");
+    screen.getByRole("main").scrollTop = 120;
+
+    openSaved();
+    backToChat();
+
+    expect(screen.getByRole("main").scrollTop).toBe(120);
+  });
+
+  test("leave the conversation, the input and the translation toggle as they were", async () => {
+    await renderStarted();
+    await send("Hello");
+    fireEvent.click(translateToggle());
+    fireEvent.change(input(), { target: { value: "half a thought" } });
+
+    openSaved();
+    backToChat();
+
+    expect(screen.getByText("Hello")).toBeDefined();
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+    expect(input().value).toBe("half a thought");
+    expect(translateToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("don't interrupt a reply that is still on its way", async () => {
+    await renderStarted();
+    const arrive = coldStart();
+    await send("Hello");
+
+    openSaved();
+    await arrive(reply("Bon dia!"));
+    backToChat();
+
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+    expect(screen.queryByText("Pensant…")).toBeNull();
   });
 });

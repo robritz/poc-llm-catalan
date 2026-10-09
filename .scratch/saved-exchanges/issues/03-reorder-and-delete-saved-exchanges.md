@@ -18,7 +18,7 @@ The full design is in `docs/specs/saved-exchanges.md`; read "The list" and "Stor
 - [ ] The open row has a button named `Suprimeix` under the reply. A closed row has none.
 - [ ] Pressing `Suprimeix` removes the saved exchange at once, with no confirmation and no undo. No row is open afterwards.
 - [ ] Deleting the last saved exchange shows the empty-list text.
-- [ ] A deleted exchange is still gone after a remount, and its reply in the conversation shows an outline bookmark when held.
+- [ ] A deleted exchange is still gone after a remount, and its reply in the conversation shows an outline bookmark when tapped.
 - [ ] Moves and deletes go through the storage module, which identifies the exchange by its message and reply text.
 - [ ] Tests are added to the existing chat component tests and drive the chat as a user would.
 - [ ] `npm test` and `npm run lint` pass.

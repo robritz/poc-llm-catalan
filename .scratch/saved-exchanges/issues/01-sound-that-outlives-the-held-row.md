@@ -8,7 +8,7 @@ Terms are defined in `CONTEXT.md`.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Holding a second reply while a first is speaking shows the speaker button under the second and does not stop the sound.
 - [ ] The reply that is speaking shows a mute button under it for as long as it is speaking, even when the held row is under another reply.

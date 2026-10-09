@@ -67,6 +67,10 @@ An exchange is a message together with the reply to it. Tapping a reply also sho
 
 The **Desats** button in the header swaps the conversation for the list of saved exchanges, newest first. Each row shows a message, and opens to show the reply; one row is open at a time. **Torna al xat** returns to the conversation, which is left as it was. The list can be opened as soon as the chat is unlocked, so a saved translation can be read while the model is still waking.
 
+Under the reply of an open row are a speaker button and a delete button. The delete button removes the saved exchange at once, with no confirmation; it is the same as unsaving it from the conversation. The speaker button speaks the reply as in the conversation, and is the one part of the list that needs the network: the speech is fetched from `/api/speak` each time, and no audio is stored.
+
+There is one sound for the whole chat. A reply started in the list keeps speaking when its row is closed and when the user returns to the conversation, and a reply started in the conversation keeps speaking in the list; the mute button in the header stops it from either. A reply that is both in the conversation and saved is two sources of sound, and only the one that was tapped shows the mute button under it. The sound stops when the saved exchange it was started from leaves the list. **Nova conversa** stops a sound started in the conversation, and leaves one started in the list.
+
 Saved exchanges are kept in the browser's `localStorage`, with no network call, so they outlive the conversation and the session. That also means:
 
 - The list belongs to one browser on one device. Nothing is synced.
@@ -99,6 +103,8 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/app/chat.tsx`                  | Chat UI (client component)                                      |
 | `src/app/reply.tsx`                 | Formats the text of a reply                                     |
 | `src/app/saved-exchanges.tsx`       | The list of saved exchanges                                     |
+| `src/app/listen-button.tsx`         | The button that speaks a reply, in the conversation and the list |
+| `src/app/path-icon.tsx`             | An icon drawn from a single path                                |
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 

@@ -29,6 +29,7 @@ Open http://localhost:3000.
 | `RUNPOD_ENDPOINT_ID` | The endpoint ID, e.g. `xdtr2cvjsqwsuu` from `api.runpod.ai/v2/<id>` |
 | `CHAT_SECRET_PHRASE` | Phrase users must type to unlock the chat (see below)           |
 | `RUNPOD_MODEL`       | Optional. The name the endpoint serves the model under, if it isn't `BSC-LT/salamandra-7b-instruct-2606` |
+| `TTS_API_URL`        | Optional. Base URL of the Matxa-TTS API that speaks replies (see below). Defaults to `http://localhost:8000` |
 
 All are read only on the server, so the API key never reaches the browser. `.env.local` is git-ignored.
 
@@ -45,6 +46,19 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 - The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts, and the request stays open for all of that time. To absorb that wait up front, each page load begins with an "Iniciar la sessió" button. It sends a hidden message to wake the model, asking it to say hello and share a random fact about Catalonia, and the UI shows "La IA s'està despertant. Un moment, si us plau." until the greeting comes back; only then is the chat enabled. After that the message is never shown again; a slow reply later in the session just shows "Pensant…". To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
 - Because the request stays open during a cold start, `/api/chat` sets `maxDuration` to 300 seconds. If your host caps function time below the cold start, the session start fails with an error and can be retried once the worker is up.
 
+## Hearing a reply
+
+Press and hold a reply for half a second and an "Escolta" button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it.
+
+```
+Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa-TTS API
+        ◀── audio/wav ──────         ◀── audio/wav ───
+```
+
+The speech comes from a Matxa-TTS API, expected at `http://localhost:8000`. Once it is hosted, set `TTS_API_URL` to its base URL; nothing else needs to change, because the browser only ever calls `/api/speak`. That route is behind the secret phrase like the chat, and rejects text that is longer than the 2,000 characters the API accepts once normalized. The voice, format, steps and speaking rate are in `VOICE_SETTINGS` in `src/lib/tts.ts`.
+
+The model behind the API, [Matxa-TTS v2](https://huggingface.co/BSC-LT/matxa-tts-v2-ca-multiaccent-graphemes), reads graphemes: only Catalan letters and a little punctuation, with numbers written out in words. The API rejects anything else, so `/api/speak` first normalizes the reply in `src/lib/speech-text.ts`: numbers and a few symbols (`%`, `€`, `$`, `&`, `+`, `=`) become Catalan words, Markdown, links and emoji are removed, and each line ends as a sentence. Numbers are always read in the masculine ("dos", not "dues"), and abbreviations and ordinals are not expanded.
+
 ## Secret phrase
 
 The chat is locked until the user types the secret phrase set in `CHAT_SECRET_PHRASE` (case and extra spaces are ignored). Until then, anything typed is checked as the phrase and never sent to the model, and the UI shows "Please enter the secret phrase to start chatting."
@@ -60,8 +74,11 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/lib/chat.ts`                   | Validates the browser's messages, reduces them to plain text, and handles the `/t` command |
 | `src/lib/runpod.ts`                 | System and translation prompts, and the AI SDK model for the RunPod endpoint |
 | `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
+| `src/lib/speech-text.ts`            | Normalizes a reply into text the TTS model can read             |
+| `src/lib/tts.ts`                    | Voice settings and the request to the Matxa-TTS API             |
 | `src/app/api/unlock/route.ts`       | `POST /api/unlock`: checks the phrase and sets the cookie       |
 | `src/app/api/chat/route.ts`         | `POST /api/chat`: validates messages and streams the reply      |
+| `src/app/api/speak/route.ts`        | `POST /api/speak`: returns a reply as spoken audio              |
 | `src/app/chat.tsx`                  | Chat UI (client component)                                      |
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |

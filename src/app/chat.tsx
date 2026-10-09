@@ -14,11 +14,33 @@ type ChatMessage = UIMessage<{ hidden?: boolean }>;
 // Kept in the history so the model sees its own greeting, but never rendered.
 const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 
+// How long a reply must be held before the option to hear it appears.
+const HOLD_MS = 500;
+
+// A reply that offers to be spoken, after being held.
+type ListenStatus = "offered" | "loading" | "failed";
+type ListenOffer = { id: string; status: ListenStatus };
+
+// An empty WAV file. Playing it during the tap lets iOS Safari play the
+// speech later, once it has loaded; by then the tap no longer counts.
+const SILENCE = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
 function messageText(message: ChatMessage): string {
   return message.parts
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("")
     .trim();
+}
+
+// Fetches the reply as speech. Resolves to a URL the audio can be played from.
+async function speechURL(text: string): Promise<string> {
+  const res = await fetch("/api/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return URL.createObjectURL(await res.blob());
 }
 
 // A model often breaks lines without leaving a blank line between them.
@@ -55,6 +77,12 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [listenOffer, setListenOffer] = useState<ListenOffer | null>(null);
+  const listenOfferRef = useRef<HTMLDivElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // One player for every reply, and the object URL of the speech it holds.
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const speechURLRef = useRef<string>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -85,6 +113,60 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   useEffect(() => {
     if (started) inputRef.current?.focus();
   }, [started]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(holdTimer.current);
+      audioRef.current?.pause();
+      if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
+    },
+    [],
+  );
+
+  // The offer appears under the reply, which may be below the visible area.
+  const listenOfferId = listenOffer?.id;
+  useEffect(() => {
+    listenOfferRef.current?.scrollIntoView({ block: "nearest" });
+  }, [listenOfferId]);
+
+  // Any press outside the offer dismisses it.
+  useEffect(() => {
+    if (!listenOffer) return;
+    const dismiss = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.("[data-listen-offer]")) setListenOffer(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [listenOffer]);
+
+  function startHold(id: string) {
+    clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => setListenOffer({ id, status: "offered" }), HOLD_MS);
+  }
+
+  function cancelHold() {
+    clearTimeout(holdTimer.current);
+  }
+
+  async function listen(id: string, text: string) {
+    // Leaves the offer alone if it has moved to another reply in the meantime.
+    const update = (status: ListenStatus | null) =>
+      setListenOffer((offer) => (offer?.id === id ? status && { id, status } : offer));
+    update("loading");
+    const audio = (audioRef.current ??= new Audio());
+    audio.src = SILENCE;
+    audio.play().catch(() => {});
+    try {
+      const url = await speechURL(text);
+      if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
+      speechURLRef.current = url;
+      audio.src = url;
+      await audio.play();
+      update(null);
+    } catch {
+      update("failed");
+    }
+  }
 
   function startSession() {
     // Drop the greeting left behind by a failed attempt.
@@ -165,14 +247,27 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             Escriu un missatge en qualsevol idioma. Et respondré en català.
           </p>
         )}
-        {visibleMessages.map((m) => (
-          <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex"}>
-            {m.role === "user" ? (
+        {visibleMessages.map((m) =>
+          m.role === "user" ? (
+            <div key={m.id} className="flex justify-end">
               <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-blue-600 px-4 py-2 text-white">
                 {messageText(m)}
               </div>
-            ) : (
-              <div className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10">
+            </div>
+          ) : (
+            <div key={m.id} className="flex flex-col items-start gap-1">
+              {/* Holding a reply offers to speak it. On touch screens the
+                  hold would otherwise select the text. */}
+              <div
+                onPointerDown={() => {
+                  // Not while a reply is still being written.
+                  if (!loading) startHold(m.id);
+                }}
+                onPointerUp={cancelHold}
+                onPointerLeave={cancelHold}
+                onPointerCancel={cancelHold}
+                className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10 [@media(pointer:coarse)]:select-none [@media(pointer:coarse)]:[-webkit-touch-callout:none]"
+              >
                 {/* Images are dropped: a reply must not make the browser fetch a URL. */}
                 <Markdown
                   remarkPlugins={REMARK_PLUGINS}
@@ -182,9 +277,23 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                   {messageText(m)}
                 </Markdown>
               </div>
-            )}
-          </div>
-        ))}
+              {listenOffer?.id === m.id && (
+                <div ref={listenOfferRef} data-listen-offer className="flex items-center gap-2">
+                  <button
+                    onClick={() => listen(m.id, messageText(m))}
+                    disabled={listenOffer.status === "loading"}
+                    className="rounded-full border border-black/15 px-3 py-1 text-sm disabled:opacity-40 dark:border-white/20"
+                  >
+                    {listenOffer.status === "loading" ? "Carregant…" : "Escolta"}
+                  </button>
+                  {listenOffer.status === "failed" && (
+                    <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ),
+        )}
         {started && loading && !replying && (
           <div className="flex">
             <div className="rounded-2xl bg-black/5 px-4 py-2 text-black/50 dark:bg-white/10 dark:text-white/50">

@@ -3,6 +3,9 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { useEffect, useRef, useState } from "react";
+import Markdown, { type ExtraProps } from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 
 // `hidden` marks messages that are sent to the model but never rendered.
 type ChatMessage = UIMessage<{ hidden?: boolean }>;
@@ -38,6 +41,16 @@ async function speechURL(text: string): Promise<string> {
   });
   if (!res.ok) throw new Error(await res.text());
   return URL.createObjectURL(await res.blob());
+}
+
+// A model often breaks lines without leaving a blank line between them.
+const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+// Links in a reply open in a new tab so the conversation isn't lost.
+function ReplyLink({ node, ...props }: React.ComponentProps<"a"> & ExtraProps) {
+  void node; // react-markdown's syntax node, not an attribute
+  const external = !props.href?.startsWith("#");
+  return <a {...props} {...(external && { target: "_blank", rel: "noopener noreferrer" })} />;
 }
 
 async function unlock(phrase: string): Promise<boolean> {
@@ -253,9 +266,16 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                 onPointerUp={cancelHold}
                 onPointerLeave={cancelHold}
                 onPointerCancel={cancelHold}
-                className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10 [@media(pointer:coarse)]:select-none [@media(pointer:coarse)]:[-webkit-touch-callout:none]"
+                className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10 [@media(pointer:coarse)]:select-none [@media(pointer:coarse)]:[-webkit-touch-callout:none]"
               >
-                {messageText(m)}
+                {/* Images are dropped: a reply must not make the browser fetch a URL. */}
+                <Markdown
+                  remarkPlugins={REMARK_PLUGINS}
+                  components={{ a: ReplyLink }}
+                  disallowedElements={["img"]}
+                >
+                  {messageText(m)}
+                </Markdown>
               </div>
               {listenOffer?.id === m.id && (
                 <div ref={listenOfferRef} data-listen-offer className="flex items-center gap-2">

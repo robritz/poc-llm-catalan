@@ -25,7 +25,7 @@ export default function SavedExchanges({ exchanges }: { exchanges: Exchange[] })
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
       {exchanges.length === 0 ? (
         <p className="px-6 pt-20 text-center text-black/40 dark:text-white/40">
-          Encara no has desat res. Mantén premuda una resposta i toca el marcador per desar-la.
+          Encara no has desat res. Toca una resposta i després el marcador per desar-la.
         </p>
       ) : (
         <ul className="divide-y divide-black/10 dark:divide-white/10">

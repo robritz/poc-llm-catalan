@@ -48,9 +48,9 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 
 ## Hearing a reply
 
-Press and hold a reply for half a second and a speaker button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it. While the reply is being spoken the button becomes a mute button, which ends the sound, and a second mute button shows in the header.
+Tap a reply and a speaker button appears under it. Tapping that plays the reply as speech; tapping the reply again, or pressing anywhere else, dismisses it. While the reply is being spoken the button becomes a mute button, which ends the sound, and a second mute button shows in the header.
 
-A reply keeps speaking until it ends, it is muted, or another reply has loaded and takes over; holding another reply doesn't stop it. A reply that was muted or has ended is spoken again from the audio already loaded, without a second request.
+A reply keeps speaking until it ends, it is muted, or another reply has loaded and takes over; tapping another reply doesn't stop it. A reply that was muted or has ended is spoken again from the audio already loaded, without a second request.
 
 ```
 Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa-TTS API
@@ -63,7 +63,7 @@ The model behind the API, [Matxa-TTS v2](https://huggingface.co/BSC-LT/matxa-tts
 
 ## Saved exchanges
 
-An exchange is a message together with the reply to it. Holding a reply also shows a bookmark button beside the speaker button; tapping it saves the exchange, and tapping it again unsaves it. The greeting can't be saved, because the message it answers is never shown.
+An exchange is a message together with the reply to it. Tapping a reply also shows a bookmark button beside the speaker button; tapping it saves the exchange, and tapping it again unsaves it. The greeting can't be saved, because the message it answers is never shown.
 
 The **Desats** button in the header swaps the conversation for the list of saved exchanges, newest first. Each row shows a message, and opens to show the reply; one row is open at a time. **Torna al xat** returns to the conversation, which is left as it was. The list can be opened as soon as the chat is unlocked, so a saved translation can be read while the model is still waking.
 

@@ -1,6 +1,6 @@
 # 04 — Hear a saved reply
 
-**What to build:** The user can hear a saved reply spoken from the list of saved exchanges. An open row shows a speaker button under the reply, with no hold needed. The sound behaves by the same rule as in the conversation: it plays until it ends, until another sound is started, or until a mute button is pressed. So a reply started in the list keeps speaking when the user goes back to the conversation, and a reply started in the conversation keeps speaking when the user opens the list. The header mute button from ticket 01 is the way to stop it from wherever the user is.
+**What to build:** The user can hear a saved reply spoken from the list of saved exchanges. An open row shows a speaker button under the reply, with no further tap needed. The sound behaves by the same rule as in the conversation: it plays until it ends, until another sound is started, or until a mute button is pressed. So a reply started in the list keeps speaking when the user goes back to the conversation, and a reply started in the conversation keeps speaking when the user opens the list. The header mute button from ticket 01 is the way to stop it from wherever the user is.
 
 Speech is fetched through the existing speak route each time; no audio is stored. This is the one part of the list that needs the network.
 

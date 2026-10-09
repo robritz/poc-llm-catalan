@@ -20,10 +20,7 @@ type ChatMessage = UIMessage<{ hidden?: boolean; translate?: boolean }>;
 // Kept in the history so the model sees its own greeting, but never rendered.
 const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 
-// How long a reply must be held before the options to hear and save it appear.
-const HOLD_MS = 500;
-
-// What a reply that was held offers under it: to be spoken, and to be saved.
+// What a reply that was tapped offers under it: to be spoken, and to be saved.
 // The status is how far it has got with being spoken.
 type ListenStatus = "offered" | "loading" | "failed";
 type Offer = { id: string; status: ListenStatus };
@@ -103,7 +100,6 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   // The number of the newest request to speak. An older one is never played.
   const newestListen = useRef(0);
   const offerRef = useRef<HTMLDivElement>(null);
-  const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // One player for every reply, and the speech it holds: the reply last
   // loaded, and the object URL of its audio.
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -158,7 +154,6 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
 
   useEffect(
     () => () => {
-      clearTimeout(holdTimer.current);
       audioRef.current?.pause();
       if (loadedSpeech.current) URL.revokeObjectURL(loadedSpeech.current.url);
     },
@@ -171,11 +166,12 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     offerRef.current?.scrollIntoView({ block: "nearest" });
   }, [offerId]);
 
-  // Any press outside the offer dismisses it.
+  // Any press outside the offer dismisses it. A press on a reply is left to
+  // the tap it begins, which opens that reply's offer or closes its own.
   useEffect(() => {
     if (!offer) return;
     const dismiss = (e: PointerEvent) => {
-      if (!(e.target as Element).closest?.("[data-offer]")) setOffer(null);
+      if (!(e.target as Element).closest?.("[data-offer], [data-reply]")) setOffer(null);
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -190,16 +186,13 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     return { message: messageText(message), reply: messageText(messages[at]) };
   }
 
-  function startHold(id: string) {
-    clearTimeout(holdTimer.current);
+  // Tapping a reply opens the offer under it, and tapping it again closes it.
+  function toggleOffer(id: string) {
+    if (offer?.id === id) return setOffer(null);
     // The reply being spoken already has its mute button. Unless it can be
-    // saved, holding it has nothing more to offer.
+    // saved, there is nothing more to offer.
     if (id === speakingId && !exchangeOf(id)) return;
-    holdTimer.current = setTimeout(() => setOffer({ id, status: "offered" }), HOLD_MS);
-  }
-
-  function cancelHold() {
-    clearTimeout(holdTimer.current);
+    setOffer({ id, status: "offered" });
   }
 
   async function listen(id: string, text: string) {
@@ -269,7 +262,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   }
 
   // What is offered under a reply: to mute it while it is being spoken, and
-  // to hear or save it once it has been held.
+  // to hear or save it once it has been tapped.
   function optionsUnder(m: ChatMessage) {
     const speaking = speakingId === m.id;
     const held = offer?.id === m.id ? offer : null;
@@ -412,17 +405,18 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
               </div>
             ) : (
               <div key={m.id} className="flex flex-col items-start gap-1">
-                {/* Holding a reply offers to speak it and to save it. On touch screens the
-                    hold would otherwise select the text. */}
+                {/* Tapping a reply offers to speak it and to save it. */}
                 <div
-                  onPointerDown={() => {
+                  data-reply
+                  onClick={(e) => {
+                    // Not for a link, which the tap follows, nor for a drag
+                    // that selected some of the text.
+                    if ((e.target as Element).closest("a")) return;
+                    if (!window.getSelection()?.isCollapsed) return;
                     // Not while a reply is still being written.
-                    if (!loading) startHold(m.id);
+                    if (!loading) toggleOffer(m.id);
                   }}
-                  onPointerUp={cancelHold}
-                  onPointerLeave={cancelHold}
-                  onPointerCancel={cancelHold}
-                  className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10 [@media(pointer:coarse)]:select-none [@media(pointer:coarse)]:[-webkit-touch-callout:none]"
+                  className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10"
                 >
                   <Reply text={messageText(m)} />
                 </div>

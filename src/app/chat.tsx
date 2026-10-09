@@ -105,9 +105,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   const newestListen = useRef(0);
   const listenOfferRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // One player for every reply, and the object URL of the speech it holds.
+  // One player for every reply, and the speech it holds: the reply last
+  // loaded, and the object URL of its audio.
   const audioRef = useRef<HTMLAudioElement>(null);
-  const speechURLRef = useRef<string>(null);
+  const loadedSpeech = useRef<{ id: string; url: string }>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -143,7 +144,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     () => () => {
       clearTimeout(holdTimer.current);
       audioRef.current?.pause();
-      if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
+      if (loadedSpeech.current) URL.revokeObjectURL(loadedSpeech.current.url);
     },
     [],
   );
@@ -181,25 +182,29 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       setListenOffer((offer) => (offer?.id === id ? status && { id, status } : offer));
     const request = ++newestListen.current;
     const isNewest = () => request === newestListen.current;
-    update("loading");
-    // One sound at a time: this one replaces whatever is being spoken.
-    setSpeakingId(null);
     const audio = (audioRef.current ??= new Audio());
-    audio.src = SILENCE;
-    audio.play().catch(() => {});
     try {
-      const url = await speechURL(text);
-      // Another reply was asked for, or the sound was ended, while this loaded.
-      if (!isNewest()) {
-        URL.revokeObjectURL(url);
-        return;
+      // A reply that was muted or has ended is spoken again as it was loaded.
+      if (loadedSpeech.current?.id !== id) {
+        update("loading");
+        // Whatever is being spoken carries on until this has loaded. If
+        // there is nothing, the tap is spent on the silence instead.
+        if (!speakingId) {
+          audio.src = SILENCE;
+          audio.play().catch(() => {});
+        }
+        const url = await speechURL(text);
+        // Another reply was asked for, or the conversation cleared, meanwhile.
+        if (!isNewest()) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (loadedSpeech.current) URL.revokeObjectURL(loadedSpeech.current.url);
+        loadedSpeech.current = { id, url };
       }
-      if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
-      speechURLRef.current = url;
-      audio.src = url;
-      audio.onended = () => {
-        if (isNewest()) setSpeakingId(null);
-      };
+      // Setting the source starts the speech from the beginning.
+      audio.src = loadedSpeech.current.url;
+      audio.onended = () => setSpeakingId((speaking) => (speaking === id ? null : speaking));
       await audio.play();
       update(null);
       setSpeakingId(id);
@@ -209,8 +214,6 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   }
 
   function mute() {
-    // Clearing the conversation must also drop a reply that is still loading.
-    newestListen.current++;
     audioRef.current?.pause();
     setSpeakingId(null);
   }
@@ -270,6 +273,8 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                 setMessages([]);
                 clearError();
                 setListenOffer(null);
+                // Drops a reply that is still loading.
+                newestListen.current++;
                 mute();
               }}
               disabled={loading}

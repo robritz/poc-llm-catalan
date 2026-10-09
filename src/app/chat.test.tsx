@@ -660,6 +660,59 @@ describe("hearing a reply", () => {
     expect(replyMuteIsAbove("Bon dia!")).toBe(false);
   });
 
+  test("keeps speaking a reply until the next one has loaded", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Hola!", 500);
+    await clickListen();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+
+    hold("Bon dia!", 500);
+    await clickListen();
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(played).toHaveLength(1);
+    expect(replyMuteIsAbove("Bon dia!")).toBe(true);
+    expect(screen.getByRole("button", { name: "Carregant…" })).toBeDefined();
+
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toHaveLength(2);
+    expect(replyMuteIsAbove("Bon dia!")).toBe(false);
+  });
+
+  test("withdraws the mute buttons when a reply ends while the next one is loading", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Hola!", 500);
+    await clickListen();
+    speech = new Promise(() => {});
+    hold("Bon dia!", 500);
+    await clickListen();
+
+    act(() => FakeAudio.current.onended!());
+
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).toBeNull();
+  });
+
+  test("speaks a muted reply again from the start without preparing the audio again", async () => {
+    await renderStarted();
+    hold("Hola!", 500);
+    await clickListen();
+    fireEvent.click(replyMute()!);
+
+    hold("Hola!", 500);
+    await clickListen();
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak")).toHaveLength(1);
+    expect(played).toHaveLength(2);
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(replyMute()).not.toBeNull();
+  });
+
   test("shows a mute button in the header for as long as a reply is being spoken", async () => {
     await renderStarted();
     expect(headerMute()).toBeNull();

@@ -59,6 +59,8 @@ Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa
 
 The speech comes from a Matxa-TTS API, expected at `http://localhost:8000`. Once it is hosted, set `TTS_API_URL` to its base URL; nothing else needs to change, because the browser only ever calls `/api/speak`. That route is behind the secret phrase like the chat, and rejects text that is longer than the 2,000 characters the API accepts once normalized. The voice, format, steps and speaking rate are in `VOICE_SETTINGS` in `src/lib/tts.ts`.
 
+When the page loads, the browser asks `GET /api/speak/health` whether replies can be spoken, and the server asks the TTS API's `/health` in turn. If the API reports an error, can't be reached, or takes more than five seconds to answer, the speaker buttons are hidden, in the conversation and among the saved exchanges, until the page is reloaded; replies can still be saved. The route is behind the secret phrase too, so a locked page asks once it has been unlocked.
+
 The model behind the API, [Matxa-TTS v2](https://huggingface.co/BSC-LT/matxa-tts-v2-ca-multiaccent-graphemes), reads graphemes: only Catalan letters and a little punctuation, with numbers written out in words. The API rejects anything else, so `/api/speak` first normalizes the reply in `src/lib/speech-text.ts`: numbers and a few symbols (`%`, `€`, `$`, `&`, `+`, `=`) become Catalan words, Markdown, links and emoji are removed, and each line ends as a sentence. Numbers are always read in the masculine ("dos", not "dues"), and abbreviations and ordinals are not expanded.
 
 ## Saved exchanges
@@ -101,11 +103,12 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/lib/runpod.ts`                 | System and translation prompts, and the AI SDK model for the RunPod endpoint |
 | `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
 | `src/lib/speech-text.ts`            | Normalizes a reply into text the TTS model can read             |
-| `src/lib/tts.ts`                    | Voice settings and the request to the Matxa-TTS API             |
+| `src/lib/tts.ts`                    | Voice settings, and the speech and health requests to the Matxa-TTS API |
 | `src/lib/saved-exchanges.ts`        | Reads and writes the saved exchanges in the browser's `localStorage` |
 | `src/app/api/unlock/route.ts`       | `POST /api/unlock`: checks the phrase and sets the cookie       |
 | `src/app/api/chat/route.ts`         | `POST /api/chat`: validates messages and streams the reply      |
 | `src/app/api/speak/route.ts`        | `POST /api/speak`: returns a reply as spoken audio              |
+| `src/app/api/speak/health/route.ts` | `GET /api/speak/health`: reports whether replies can be spoken  |
 | `src/app/chat.tsx`                  | Chat UI (client component)                                      |
 | `src/app/reply.tsx`                 | Formats the text of a reply                                     |
 | `src/app/saved-exchanges.tsx`       | The list of saved exchanges                                     |

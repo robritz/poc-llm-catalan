@@ -68,6 +68,15 @@ async function speechURL(text: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
+// Asks whether replies can be spoken. Any failure to find out counts as no.
+async function isSpeechHealthy(): Promise<boolean> {
+  try {
+    return (await fetch("/api/speak/health")).ok;
+  } catch {
+    return false;
+  }
+}
+
 const BOOKMARK_ICON =
   "M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15-5-2.18L7 18V5h10v13z";
 const BOOKMARKED_ICON = "M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z";
@@ -108,6 +117,9 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   // played, and nor is this one once it has been dropped.
   const newestListen = useRef<{ id: string }>(null);
   const offerRef = useRef<HTMLDivElement>(null);
+  // Whether replies can be spoken. They are taken to be until the TTS API
+  // is found not to be healthy, and then nothing offers to speak them.
+  const [speechAvailable, setSpeechAvailable] = useState(true);
   // One player for every reply, and the speech it holds: the reply last
   // loaded, and the object URL of its audio.
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -155,6 +167,22 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     };
   }, []);
 
+  // The health of the TTS API is behind the secret phrase, so it is asked for
+  // when the page loads unlocked, or else once it has been unlocked.
+  useEffect(() => {
+    if (!unlocked) return;
+    let current = true;
+    isSpeechHealthy().then((healthy) => {
+      if (!current) return;
+      setSpeechAvailable(healthy);
+      // An offer opened in the meantime may be left with nothing to offer.
+      if (!healthy) setOffer(null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [unlocked]);
+
   // The input is disabled until the session starts, so it can't autofocus.
   useEffect(() => {
     if (started) inputRef.current?.focus();
@@ -197,9 +225,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   // Tapping a reply opens the offer under it, and tapping it again closes it.
   function toggleOffer(id: string) {
     if (offer?.id === id) return setOffer(null);
-    // The reply being spoken already has its mute button. Unless it can be
-    // saved, there is nothing more to offer.
-    if (id === speakingId && !exchangeOf(id)) return;
+    // The reply being spoken already has its mute button, and one that can't
+    // be spoken has no button. Unless it can be saved, there is nothing more
+    // to offer.
+    if ((id === speakingId || !speechAvailable) && !exchangeOf(id)) return;
     setOffer({ id, status: "offered" });
   }
 
@@ -326,6 +355,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       >
         <ListenButton
           sound={speaking ? "speaking" : (held?.status ?? "offered")}
+          available={speechAvailable}
           onListen={() => listenToReply(m.id, messageText(m))}
           onMute={mute}
         />
@@ -411,7 +441,13 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       </header>
 
       {showingSaved ? (
-        <SavedExchanges exchanges={saved} soundOf={soundOfSaved} onListen={listenToSaved} onMute={mute} />
+        <SavedExchanges
+          exchanges={saved}
+          speechAvailable={speechAvailable}
+          soundOf={soundOfSaved}
+          onListen={listenToSaved}
+          onMute={mute}
+        />
       ) : (
         <main ref={mainRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-6">
           {!unlocked && (

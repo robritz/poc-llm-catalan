@@ -14,12 +14,16 @@ export const MUTE_ICON =
 
 // The button under a reply that speaks it, in the conversation and among the
 // saved exchanges. It gives way to a mute button while the reply is spoken.
+// While speech isn't available there is no offer to speak, only what is left
+// of a reply that was already asked for.
 export default function ListenButton({
   sound,
+  available,
   onListen,
   onMute,
 }: {
   sound: Sound;
+  available: boolean;
   onListen: () => void;
   onMute: () => void;
 }) {
@@ -37,6 +41,7 @@ export default function ListenButton({
       </button>
     );
   }
+  if (!available) return null;
   return (
     <button onClick={onListen} aria-label="Escolta" className={OFFER_BUTTON_STYLE}>
       <Icon path={SPEAKER_ICON} />

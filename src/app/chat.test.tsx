@@ -22,8 +22,11 @@ const NOTHING_SAVED =
 let answer: Response | Promise<Response>;
 // What the fake API answers when asked to speak a reply.
 let speech: Response | Promise<Response>;
+// What the fake API answers when asked whether replies can be spoken.
+let health: Response | Promise<Response>;
 const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
   if (url === "/api/unlock") return Response.json({ unlocked: true });
+  if (url === "/api/speak/health") return health;
   if (url === "/api/speak") return speech;
   return answer;
 });
@@ -270,6 +273,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   answer = reply("Bon dia!");
   speech = new Response("wav", { headers: { "Content-Type": "audio/wav" } });
+  health = new Response("OK");
   played = [];
   vi.stubGlobal("Audio", FakeAudio);
   // jsdom doesn't implement object URLs.
@@ -285,7 +289,7 @@ describe("locked", () => {
 
     await send("open sesame");
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sentConversations()).toEqual([]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/unlock");
     expect(JSON.parse(init!.body as string)).toEqual({ phrase: "open sesame" });
@@ -313,7 +317,7 @@ describe("starting a session", () => {
     expect(input().disabled).toBe(true);
 
     await send("Hello");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sentConversations()).toEqual([]);
   });
 
   test("asks the model to say hello and shows only the wake message while waiting", async () => {
@@ -913,6 +917,84 @@ describe("hearing a reply", () => {
 
     expect(screen.getByText("No s'ha pogut reproduir l'àudio.")).toBeDefined();
     expect(played).toEqual([]);
+  });
+});
+
+describe("speech that isn't available", () => {
+  test("doesn't offer to speak a reply when the health check fails", async () => {
+    health = new Response("Unavailable", { status: 503 });
+    await renderStarted();
+    await send("Hello");
+
+    tap("Bon dia!");
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(saveToggle()).toBeDefined();
+  });
+
+  test("doesn't offer to speak a reply when the health check can't be made", async () => {
+    health = Promise.reject(new Error("Failed to fetch"));
+    await renderStarted();
+    await send("Hello");
+
+    tap("Bon dia!");
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("offers nothing under the greeting, which can't be saved either", async () => {
+    health = new Response("Unavailable", { status: 503 });
+    await renderStarted();
+
+    tap("Hola!");
+
+    // Not even an empty offer opens under it.
+    expect(document.querySelector("[data-offer]")).toBeNull();
+  });
+
+  test("withdraws an offer that was opened before the health check failed", async () => {
+    let resolve!: (res: Response) => void;
+    health = new Promise((r) => (resolve = r));
+    await renderStarted();
+    tap("Hola!");
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+
+    await act(async () => resolve(new Response("Unavailable", { status: 503 })));
+
+    expect(document.querySelector("[data-offer]")).toBeNull();
+  });
+
+  test("doesn't offer to speak a saved reply, which can still be deleted", async () => {
+    health = new Response("Unavailable", { status: 503 });
+    await renderSaved("One");
+
+    fireEvent.click(savedRow("One"));
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(savedRowButton("One", DELETE_BUTTON)).toBeDefined();
+  });
+
+  test("checks the health once, when the page loads unlocked", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak/health")).toHaveLength(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/speak/health");
+  });
+
+  test("checks the health once the chat is unlocked, not while it is locked", async () => {
+    health = new Response("Unavailable", { status: 503 });
+    render(<Chat initiallyUnlocked={false} />);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await send("open sesame");
+    await clickStart();
+    await send("Hello");
+    tap("Bon dia!");
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak/health")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 });
 

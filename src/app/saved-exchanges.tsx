@@ -22,15 +22,17 @@ export function useSavedExchanges(): Exchange[] {
 }
 
 // The list of saved exchanges. Each row shows a message, and opens to show
-// the reply to it, which can be heard. The sound is the chat's: it carries on
-// when the row is closed and when the list is.
+// the reply to it, which can be heard while speech is available. The sound is
+// the chat's: it carries on when the row is closed and when the list is.
 export default function SavedExchanges({
   exchanges,
+  speechAvailable,
   soundOf,
   onListen,
   onMute,
 }: {
   exchanges: Exchange[];
+  speechAvailable: boolean;
   soundOf: (exchange: Exchange) => Sound;
   onListen: (exchange: Exchange) => void;
   onMute: () => void;
@@ -87,7 +89,12 @@ export default function SavedExchanges({
                       <Reply text={exchange.reply} />
                     </div>
                     <div className="flex items-center gap-2">
-                      <ListenButton sound={sound} onListen={() => onListen(exchange)} onMute={onMute} />
+                      <ListenButton
+                        sound={sound}
+                        available={speechAvailable}
+                        onListen={() => onListen(exchange)}
+                        onMute={onMute}
+                      />
                       {/* Out of reach until the row is open, so that it isn't
                           pressed by mistake. */}
                       <button

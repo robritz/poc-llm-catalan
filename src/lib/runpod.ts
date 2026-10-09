@@ -9,6 +9,8 @@ export const SYSTEM_PROMPT = [
   "Fes servir una altra llengua només quan l'usuari t'ho demani.",
   "Acaba la resposta quan hagis respost la pregunta.",
   "Dona només la resposta, res més.",
+  "End your response immediately after answering the final point.",
+  "Do not include fi or (fi)."
 ].join(" ");
 
 // The model signs its replies off whatever the prompt says, so generation is

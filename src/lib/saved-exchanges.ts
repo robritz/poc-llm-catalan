@@ -35,9 +35,18 @@ function parse(stored: string | null): Exchange[] {
 // between gives the same array. React needs that of a store it subscribes to.
 let lastRead: { stored: string | null; exchanges: Exchange[] } = { stored: null, exchanges: NONE };
 
+// What is stored, or nothing if the browser won't let storage be read.
+function read(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
 // The saved exchanges, in the order the user keeps them.
 export function savedExchanges(): Exchange[] {
-  const stored = localStorage.getItem(KEY);
+  const stored = read();
   if (stored !== lastRead.stored) lastRead = { stored, exchanges: parse(stored) };
   return lastRead.exchanges;
 }
@@ -61,21 +70,30 @@ export function subscribeToSavedExchanges(listener: () => void): () => void {
 }
 
 // Every change starts from what is stored now, not from what a page last
-// showed, so one tab can't undo what another has saved.
-function change(apply: (exchanges: Exchange[]) => Exchange[]) {
+// showed, so one tab can't undo what another has saved. Returns whether the
+// change was stored: the browser refuses when storage is full or blocked,
+// and what was stored is then left as it was.
+function change(apply: (exchanges: Exchange[]) => Exchange[]): boolean {
   const exchanges = apply(savedExchanges());
-  localStorage.setItem(KEY, JSON.stringify({ version: VERSION, exchanges }));
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ version: VERSION, exchanges }));
+  } catch {
+    return false;
+  }
   listeners.forEach((listener) => listener());
+  return true;
 }
 
 // Puts the exchange at the top of the list, unless it is already saved.
-export function saveExchange(exchange: Exchange) {
-  change((exchanges) =>
+// Returns whether that could be stored.
+export function saveExchange(exchange: Exchange): boolean {
+  return change((exchanges) =>
     exchanges.some((saved) => isSameExchange(saved, exchange)) ? exchanges : [exchange, ...exchanges],
   );
 }
 
 // Takes the exchange out of the list. Deleting a saved exchange is this too.
-export function unsaveExchange(exchange: Exchange) {
-  change((exchanges) => exchanges.filter((saved) => !isSameExchange(saved, exchange)));
+// Returns whether that could be stored.
+export function unsaveExchange(exchange: Exchange): boolean {
+  return change((exchanges) => exchanges.filter((saved) => !isSameExchange(saved, exchange)));
 }

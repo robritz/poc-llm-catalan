@@ -32,7 +32,8 @@ const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 // What a reply that was tapped offers under it: to be spoken, and to be saved.
 // The status is how far it has got with being spoken.
 type ListenStatus = "offered" | "loading" | "failed";
-type Offer = { id: string; status: ListenStatus };
+// `saveFailed` is set when it was asked to be saved and couldn't be stored.
+type Offer = { id: string; status: ListenStatus; saveFailed?: boolean };
 
 // What a sound started from a saved exchange is known by, as one started from
 // a reply in the conversation is known by the reply's id. A reply that is in
@@ -244,7 +245,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
 
   function listenToReply(id: string, text: string) {
     // Leaves the offer alone if it has moved to another reply in the meantime.
-    listen(id, text, (status) => setOffer((offer) => (offer?.id === id ? { id, status } : offer)));
+    listen(id, text, (status) => setOffer((offer) => (offer?.id === id ? { ...offer, status } : offer)));
   }
 
   function listenToSaved(exchange: Exchange) {
@@ -330,7 +331,14 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
         />
         {exchange && (
           <button
-            onClick={() => (isSaved ? unsaveExchange(exchange) : saveExchange(exchange))}
+            onClick={() => {
+              if (isSaved) {
+                unsaveExchange(exchange);
+                return;
+              }
+              const saveFailed = !saveExchange(exchange);
+              setOffer((offer) => (offer?.id === m.id ? { ...offer, saveFailed } : offer));
+            }}
             aria-label="Desa"
             aria-pressed={isSaved}
             className={OFFER_BUTTON_STYLE}
@@ -339,6 +347,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
           </button>
         )}
         {held?.status === "failed" && <ListenFailure />}
+        {held?.saveFailed && !isSaved && <p className="text-sm text-red-600">No s&apos;ha pogut desar.</p>}
       </div>
     );
   }

@@ -13,6 +13,7 @@ const SAVE_TOGGLE = "Desa";
 const SAVED_BUTTON = "Desats";
 const BACK_BUTTON = "Torna al xat";
 const DELETE_BUTTON = "Suprimeix";
+const SAVE_FAILURE = "No s'ha pogut desar.";
 const NOTHING_SAVED =
   "Encara no has desat res. Toca una resposta i després el marcador per desar-la.";
 
@@ -194,6 +195,46 @@ async function renderSaved(...messages: string[]) {
   openSaved();
 }
 
+// Makes the browser refuse to store anything, as it does when storage is full
+// or blocked. Returns a function that lets it store again.
+function refuseWrites() {
+  const refusal = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+  });
+  return () => refusal.mockRestore();
+}
+
+// Where the saved exchanges are stored, and the list as this version stores it.
+const STORAGE_KEY = "saved-exchanges";
+type StoredExchange = { message: string; reply: string };
+function stored(exchanges: StoredExchange[]) {
+  return JSON.stringify({ version: 1, exchanges });
+}
+
+// What another tab does to the saved exchanges: it changes the stored list
+// directly. This tab doesn't know until the browser tells it.
+function changeInAnotherTab(change: (exchanges: StoredExchange[]) => StoredExchange[]) {
+  const { exchanges } = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? stored([]));
+  localStorage.setItem(STORAGE_KEY, stored(change(exchanges)));
+}
+
+// The browser telling this tab that another has changed what is stored.
+function hearOfAnotherTab() {
+  act(() => {
+    window.dispatchEvent(new StorageEvent("storage"));
+  });
+}
+
+// Makes the browser refuse any use of storage, as it does when a site's
+// storage is blocked.
+function blockStorage() {
+  const refuse = () => {
+    throw new DOMException("The operation is insecure.", "SecurityError");
+  };
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(refuse);
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(refuse);
+}
+
 // The text of each conversation sent to the model.
 function sentConversations() {
   return fetchMock.mock.calls
@@ -221,6 +262,7 @@ function translateToggle() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockClear();
@@ -1469,10 +1511,8 @@ describe("one sound across the conversation and the saved exchanges", () => {
     fireEvent.click(savedRow("One"));
     await clickListen();
 
-    act(() => {
-      localStorage.removeItem("saved-exchanges");
-      window.dispatchEvent(new StorageEvent("storage"));
-    });
+    changeInAnotherTab(() => []);
+    hearOfAnotherTab();
 
     expect(FakeAudio.current.paused).toBe(true);
     expect(headerMute()).toBeNull();
@@ -1559,5 +1599,230 @@ describe("one sound across the conversation and the saved exchanges", () => {
 
     expect(played).toEqual(["blob:speech"]);
     expect(headerMute()).not.toBeNull();
+  });
+});
+
+describe("a save that can't be stored", () => {
+  test("says so under the reply and leaves the bookmark an outline", async () => {
+    await renderStarted();
+    await send("Hello");
+    refuseWrites();
+
+    toggleSaved("Bon dia!");
+
+    expect(screen.getByText(SAVE_FAILURE)).toBeDefined();
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("leaves the saved exchanges as they were", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    answer = reply("De res!");
+    await send("Thanks");
+    const storeAgain = refuseWrites();
+
+    toggleSaved("De res!");
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+
+    storeAgain();
+    cleanup();
+    render(<Chat initiallyUnlocked />);
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+  });
+
+  test("no longer says so once a later save of that reply succeeds", async () => {
+    await renderStarted();
+    await send("Hello");
+    const storeAgain = refuseWrites();
+    toggleSaved("Bon dia!");
+
+    storeAgain();
+    pressSaveToggle();
+
+    expect(screen.queryByText(SAVE_FAILURE)).toBeNull();
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("no longer says so once the options under the reply are dismissed", async () => {
+    await renderStarted();
+    await send("Hello");
+    refuseWrites();
+    toggleSaved("Bon dia!");
+
+    tap("Bon dia!");
+    tap("Bon dia!");
+
+    expect(screen.getByRole("button", { name: SAVE_TOGGLE })).toBeDefined();
+    expect(screen.queryByText(SAVE_FAILURE)).toBeNull();
+  });
+
+  test("no longer says so once the exchange is saved from another tab", async () => {
+    await renderStarted();
+    await send("Hello");
+    const storeAgain = refuseWrites();
+    toggleSaved("Bon dia!");
+
+    storeAgain();
+    changeInAnotherTab(() => [{ message: "Hello", reply: "Bon dia!" }]);
+    hearOfAnotherTab();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByText(SAVE_FAILURE)).toBeNull();
+  });
+
+  test("keeps saying so while the reply is spoken", async () => {
+    await renderStarted();
+    await send("Hello");
+    refuseWrites();
+    toggleSaved("Bon dia!");
+
+    await clickListen();
+
+    expect(replyMute()).not.toBeNull();
+    expect(screen.getByText(SAVE_FAILURE)).toBeDefined();
+  });
+});
+
+describe("storage that is blocked", () => {
+  test("shows nothing saved, leaves the chat working, and says a save couldn't be stored", async () => {
+    blockStorage();
+    await renderStarted();
+
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+
+    backToChat();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    expect(screen.getByText(SAVE_FAILURE)).toBeDefined();
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("a delete that can't be stored", () => {
+  test("leaves the saved exchange in the list, its row still open", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("One"));
+    refuseWrites();
+
+    fireEvent.click(savedRowButton("One", DELETE_BUTTON));
+
+    expect(savedMessages()).toEqual(["One", "Two"]);
+    expect(savedRow("One").getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+describe("stored exchanges that can't be read", () => {
+  const unreadable = [
+    ["isn't JSON", "not a list at all"],
+    ["is of an unknown version", JSON.stringify({ version: 2, exchanges: [{ message: "Old", reply: "Vell" }] })],
+    ["isn't a list", JSON.stringify({ version: 1, exchanges: "Old" })],
+    ["holds something other than exchanges", JSON.stringify({ version: 1, exchanges: [{ message: "Old" }] })],
+    ["is null", "null"],
+  ];
+
+  test.each(unreadable)("show as nothing saved when what is stored %s, and the chat works", async (_, junk) => {
+    localStorage.setItem(STORAGE_KEY, junk);
+    await renderStarted();
+
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+
+    backToChat();
+    await send("Hello");
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+    tap("Bon dia!");
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test.each(unreadable)("are replaced by the next save when what is stored %s", async (_, junk) => {
+    localStorage.setItem(STORAGE_KEY, junk);
+    await renderStarted();
+    await send("Hello");
+
+    toggleSaved("Bon dia!");
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    cleanup();
+    render(<Chat initiallyUnlocked />);
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+  });
+});
+
+describe("the saved exchanges in two tabs", () => {
+  const ELSEWHERE = { message: "Elsewhere", reply: "En un altre lloc" };
+
+  test("show an exchange saved in another tab without a reload", async () => {
+    await renderSaved("One");
+
+    changeInAnotherTab((exchanges) => [ELSEWHERE, ...exchanges]);
+    hearOfAnotherTab();
+
+    expect(savedMessages()).toEqual(["Elsewhere", "One"]);
+  });
+
+  test("fill the bookmark of a reply whose exchange was saved in another tab", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    changeInAnotherTab(() => [{ message: "Hello", reply: "Bon dia!" }]);
+    hearOfAnotherTab();
+    tap("Bon dia!");
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  // The other tab's change is stored, but this tab hasn't heard of it yet.
+  test("keep what another tab has just saved when this tab saves", async () => {
+    await renderStarted();
+    await send("Hello");
+    changeInAnotherTab(() => [ELSEWHERE]);
+
+    toggleSaved("Bon dia!");
+    openSaved();
+
+    expect(savedMessages()).toEqual(["Hello", "Elsewhere"]);
+  });
+
+  test("keep what another tab has just saved when this tab deletes", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("Two"));
+    changeInAnotherTab((exchanges) => [ELSEWHERE, ...exchanges]);
+
+    fireEvent.click(savedRowButton("Two", DELETE_BUTTON));
+
+    expect(savedMessages()).toEqual(["Elsewhere", "One"]);
+  });
+
+  test("change nothing when this tab deletes what another tab has just deleted", async () => {
+    await renderSaved("One", "Two", "Three");
+    fireEvent.click(savedRow("Two"));
+    changeInAnotherTab((exchanges) => exchanges.filter((one) => one.message !== "Two"));
+
+    fireEvent.click(savedRowButton("Two", DELETE_BUTTON));
+
+    expect(savedMessages()).toEqual(["One", "Three"]);
+  });
+
+  test("close the open row when another tab deletes it", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("Two"));
+
+    const deleted = { message: "Two", reply: "Resposta a Two" };
+    changeInAnotherTab((exchanges) => exchanges.filter((one) => one.message !== deleted.message));
+    hearOfAnotherTab();
+
+    expect(savedMessages()).toEqual(["One"]);
+    expect(screen.queryByRole("button", { expanded: true })).toBeNull();
+    expect(screen.queryByText("Resposta a Two")).toBeNull();
+
+    // It was closed, not hidden: saved again, its row is closed like any other.
+    changeInAnotherTab((exchanges) => [deleted, ...exchanges]);
+    hearOfAnotherTab();
+    expect(savedRow("Two").getAttribute("aria-expanded")).toBe("false");
   });
 });

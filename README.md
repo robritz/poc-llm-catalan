@@ -77,6 +77,12 @@ Saved exchanges are kept in the browser's `localStorage`, with no network call, 
 - Clearing the site's data removes it.
 - iOS Safari may evict it after about a week without a visit, unless the app has been added to the home screen.
 
+When storage doesn't behave, the list fails safely:
+
+- If the browser refuses a save, because storage is full or blocked, "No s'ha pogut desar." is shown under the reply and the bookmark stays an outline. What was stored is left as it was.
+- Stored data that can't be read, or that this version didn't write, is shown as an empty list. It is left alone until the next save, which replaces it.
+- With the app open in two tabs, a change in one appears in the other. Every change starts from what is stored at that moment, so one tab never erases what the other has saved.
+
 Two exchanges are the same when both the message and the reply read the same, which is how a reply is known to be saved after a reload. All reading and writing of the list is in `src/lib/saved-exchanges.ts`.
 
 ## Secret phrase

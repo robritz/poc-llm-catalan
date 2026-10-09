@@ -37,6 +37,9 @@ export default function SavedExchanges({
 }) {
   // One row is open at a time, and none to begin with.
   const [open, setOpen] = useState<Exchange | null>(null);
+  // A row whose exchange has left the list, deleted in another tab perhaps,
+  // is no longer open: saved again, it comes back closed.
+  if (open !== null && !exchanges.some((exchange) => isSameExchange(open, exchange))) setOpen(null);
   const listRef = useRef<HTMLUListElement>(null);
   // Where the keyboard's focus is to go once the list has changed. Deleting
   // a row would otherwise leave it on a button that is gone.
@@ -53,8 +56,8 @@ export default function SavedExchanges({
       const rows = listRef.current?.querySelectorAll<HTMLButtonElement>("[aria-expanded]");
       rows?.[Math.min(place, rows.length - 1)]?.focus();
     };
-    setOpen(null);
-    unsaveExchange(exchange);
+    // Refused by the browser: the row stays as it is.
+    if (!unsaveExchange(exchange)) focusAfterChange.current = null;
   }
 
   return (

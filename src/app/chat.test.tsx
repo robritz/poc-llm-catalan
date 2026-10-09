@@ -386,7 +386,7 @@ describe("hearing a reply", () => {
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
 
     hold("Hola!", 500);
-    // The offer is a play icon, named for screen readers but with no word on it.
+    // The offer is a speaker icon, named for screen readers but with no word on it.
     const button = screen.getByRole("button", { name: LISTEN_BUTTON });
     expect(button.textContent).toBe("");
     expect(button.querySelector("svg")).not.toBeNull();

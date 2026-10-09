@@ -48,7 +48,7 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 
 ## Hearing a reply
 
-Press and hold a reply for half a second and a play button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it.
+Press and hold a reply for half a second and a speaker button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it.
 
 ```
 Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa-TTS API

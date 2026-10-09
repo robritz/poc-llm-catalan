@@ -55,10 +55,10 @@ function ReplyLink({ node, ...props }: React.ComponentProps<"a"> & ExtraProps) {
 
 // As tall as a line of the button's text, so the button keeps its height
 // when the icon gives way to "Carregant…".
-function PlayIcon() {
+function SpeakerIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-5">
-      <path d="M8 5v14l11-7z" />
+      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
     </svg>
   );
 }
@@ -295,7 +295,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                     aria-label={listenOffer.status === "loading" ? undefined : "Escolta"}
                     className="rounded-full border border-black/15 px-3 py-1 text-sm disabled:opacity-40 dark:border-white/20"
                   >
-                    {listenOffer.status === "loading" ? "Carregant…" : <PlayIcon />}
+                    {listenOffer.status === "loading" ? "Carregant…" : <SpeakerIcon />}
                   </button>
                   {listenOffer.status === "failed" && (
                     <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>

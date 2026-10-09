@@ -1,19 +1,34 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import Chat from "./chat";
 
 const GREETING = "say hello and include a random fact about catalonia.";
 const START_BUTTON = "Iniciar la sessió";
 const WAKE_MESSAGE = "La IA s'està despertant. Un moment, si us plau.";
+const LISTEN_BUTTON = "Escolta";
 
 // What the fake API does with the next chat request: stream a reply, fail,
 // or (for a pending promise) keep the request open like a cold start.
 let answer: Response | Promise<Response>;
+// What the fake API answers when asked to speak a reply.
+let speech: Response | Promise<Response>;
 const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
   if (url === "/api/unlock") return Response.json({ unlocked: true });
+  if (url === "/api/speak") return speech;
   return answer;
 });
+
+// The sources of the speech that has been played. jsdom can't play audio.
+let played: string[];
+class FakeAudio {
+  src = "";
+  async play() {
+    // Leaves out the silent clip played to unlock audio on iOS.
+    if (!this.src.startsWith("data:")) played.push(this.src);
+  }
+  pause() {}
+}
 
 function reply(text: string) {
   return createUIMessageStreamResponse({
@@ -77,6 +92,23 @@ async function renderStarted() {
   answer = reply("Bon dia!");
 }
 
+// Presses a message without letting go, for the given time.
+function hold(text: string, ms: number) {
+  vi.useFakeTimers();
+  fireEvent.pointerDown(screen.getByText(text));
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+  vi.useRealTimers();
+}
+
+async function clickListen() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: LISTEN_BUTTON }));
+  });
+  await settle();
+}
+
 // The text of each conversation sent to the model.
 function sentConversations() {
   return fetchMock.mock.calls
@@ -97,6 +129,16 @@ beforeEach(() => {
   // jsdom doesn't implement scrollIntoView.
   Element.prototype.scrollIntoView = vi.fn();
   answer = reply("Bon dia!");
+  speech = new Response("wav", { headers: { "Content-Type": "audio/wav" } });
+  played = [];
+  vi.stubGlobal("Audio", FakeAudio);
+  // jsdom doesn't implement object URLs.
+  URL.createObjectURL = vi.fn(() => "blob:speech");
+  URL.revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("locked", () => {
@@ -272,5 +314,96 @@ describe("cold start after the session has started", () => {
 
     expect(screen.queryByText(WAKE_MESSAGE)).toBeNull();
     expect(screen.getByText("Pensant…")).toBeDefined();
+  });
+});
+
+describe("hearing a reply", () => {
+  test("offers to speak a reply that is held for half a second", async () => {
+    await renderStarted();
+
+    hold("Hola!", 499);
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+
+    hold("Hola!", 500);
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+  });
+
+  test("doesn't offer it when the reply is let go early, or for the user's own message", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(screen.getByText("Hola!"));
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    fireEvent.pointerUp(screen.getByText("Hola!"));
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    hold("Hello", 5000);
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("doesn't offer it while a reply is still being written", async () => {
+    await renderStarted();
+    coldStart();
+    await send("Hello");
+
+    hold("Hola!", 500);
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("withdraws the offer when something else is pressed", async () => {
+    await renderStarted();
+    hold("Hola!", 500);
+
+    fireEvent.pointerDown(input());
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("speaks the reply when the offer is taken", async () => {
+    await renderStarted();
+    hold("Hola!", 500);
+
+    await clickListen();
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === "/api/speak")!;
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(init!.body as string)).toEqual({ text: "Hola!" });
+    expect(played).toEqual(["blob:speech"]);
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("shows it is loading while the audio is prepared", async () => {
+    await renderStarted();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    hold("Hola!", 500);
+
+    await clickListen();
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Carregant…" }).disabled).toBe(true);
+    expect(played).toEqual([]);
+
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toEqual(["blob:speech"]);
+    expect(screen.queryByRole("button", { name: "Carregant…" })).toBeNull();
+  });
+
+  test("says so when the reply can't be spoken", async () => {
+    await renderStarted();
+    speech = new Response("Upstream error", { status: 502 });
+    hold("Hola!", 500);
+
+    await clickListen();
+
+    expect(screen.getByText("No s'ha pogut reproduir l'àudio.")).toBeDefined();
+    expect(played).toEqual([]);
   });
 });

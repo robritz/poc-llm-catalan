@@ -2,8 +2,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 import { chatModel } from "@/lib/runpod";
+import { synthesize } from "@/lib/tts";
 import { isUnlocked, tryUnlock } from "@/lib/unlock";
 import { POST as postChat } from "./chat/route";
+import { POST as postSpeak } from "./speak/route";
 import { POST as postUnlock } from "./unlock/route";
 
 vi.mock("@/lib/runpod", () => ({
@@ -11,6 +13,7 @@ vi.mock("@/lib/runpod", () => ({
   SYSTEM_PROMPT: "Respon en català.",
   TRANSLATION_PROMPT: "Tradueix al català.",
 }));
+vi.mock("@/lib/tts");
 vi.mock("@/lib/unlock");
 
 function post(path: string, body: unknown) {
@@ -121,6 +124,62 @@ describe("POST /api/chat", () => {
       throw new Error("RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID must be set");
     });
     const res = await postChat(post("/api/chat", { messages }));
+    expect(res.status).toBe(502);
+    expect(await res.text()).toBe("Upstream error");
+  });
+});
+
+describe("POST /api/speak", () => {
+  test("returns 401 without reaching the TTS API when locked", async () => {
+    vi.mocked(isUnlocked).mockResolvedValue(false);
+    const res = await postSpeak(post("/api/speak", { text: "Bon dia" }));
+    expect(res.status).toBe(401);
+    expect(await res.text()).toBe("Locked");
+    expect(synthesize).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["a body that isn't JSON", "not json"],
+    ["missing text", {}],
+    ["text that isn't a string", { text: 123 }],
+    ["blank text", { text: "   " }],
+    ["text with nothing to say", { text: "😀 ***" }],
+    ["text longer than the TTS API accepts", { text: "a".repeat(2001) }],
+    ["text that becomes too long once its numbers are words", { text: "77 ".repeat(600) }],
+  ])("returns 400 for %s", async (_name, body) => {
+    const res = await postSpeak(post("/api/speak", body));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("Invalid text");
+    expect(synthesize).not.toHaveBeenCalled();
+  });
+
+  test("returns the audio of the spoken text", async () => {
+    vi.mocked(synthesize).mockResolvedValue(
+      new Response("wav", { headers: { "Content-Type": "audio/wav" } }),
+    );
+    const res = await postSpeak(post("/api/speak", { text: " Bon dia " }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("audio/wav");
+    expect(await res.text()).toBe("wav");
+    expect(synthesize).toHaveBeenCalledWith("Bon dia");
+  });
+
+  test("has the text spoken in a form the model can read", async () => {
+    vi.mocked(synthesize).mockResolvedValue(new Response("wav"));
+    await postSpeak(post("/api/speak", { text: "**Tinc 3 gats** 😀" }));
+    expect(synthesize).toHaveBeenCalledWith("Tinc tres gats");
+  });
+
+  test("returns 502 without leaking details when the TTS API reports an error", async () => {
+    vi.mocked(synthesize).mockResolvedValue(new Response("secret details", { status: 500 }));
+    const res = await postSpeak(post("/api/speak", { text: "Bon dia" }));
+    expect(res.status).toBe(502);
+    expect(await res.text()).toBe("Upstream error");
+  });
+
+  test("returns 502 when the TTS API can't be reached", async () => {
+    vi.mocked(synthesize).mockRejectedValue(new Error("fetch failed"));
+    const res = await postSpeak(post("/api/speak", { text: "Bon dia" }));
     expect(res.status).toBe(502);
     expect(await res.text()).toBe("Upstream error");
   });

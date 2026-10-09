@@ -3,6 +3,9 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { useEffect, useRef, useState } from "react";
+import Markdown, { type ExtraProps } from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 
 // `hidden` marks messages that are sent to the model but never rendered.
 type ChatMessage = UIMessage<{ hidden?: boolean }>;
@@ -16,6 +19,16 @@ function messageText(message: ChatMessage): string {
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("")
     .trim();
+}
+
+// A model often breaks lines without leaving a blank line between them.
+const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+// Links in a reply open in a new tab so the conversation isn't lost.
+function ReplyLink({ node, ...props }: React.ComponentProps<"a"> & ExtraProps) {
+  void node; // react-markdown's syntax node, not an attribute
+  const external = !props.href?.startsWith("#");
+  return <a {...props} {...(external && { target: "_blank", rel: "noopener noreferrer" })} />;
 }
 
 async function unlock(phrase: string): Promise<boolean> {
@@ -154,15 +167,22 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
         )}
         {visibleMessages.map((m) => (
           <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex"}>
-            <div
-              className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 ${
-                m.role === "user"
-                  ? "bg-blue-600 text-white"
-                  : "bg-black/5 dark:bg-white/10"
-              }`}
-            >
-              {messageText(m)}
-            </div>
+            {m.role === "user" ? (
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-blue-600 px-4 py-2 text-white">
+                {messageText(m)}
+              </div>
+            ) : (
+              <div className="markdown max-w-[85%] rounded-2xl bg-black/5 px-4 py-2 dark:bg-white/10">
+                {/* Images are dropped: a reply must not make the browser fetch a URL. */}
+                <Markdown
+                  remarkPlugins={REMARK_PLUGINS}
+                  components={{ a: ReplyLink }}
+                  disallowedElements={["img"]}
+                >
+                  {messageText(m)}
+                </Markdown>
+              </div>
+            )}
           </div>
         ))}
         {started && loading && !replying && (

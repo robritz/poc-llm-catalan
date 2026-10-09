@@ -264,6 +264,67 @@ describe("chatting", () => {
   });
 });
 
+describe("markdown", () => {
+  test("formats markdown in a reply", async () => {
+    await renderStarted();
+    answer = reply("Barcelona és **molt** gran.");
+
+    await send("Hello");
+
+    expect(screen.getByText("molt").tagName).toBe("STRONG");
+    expect(screen.queryByText(/\*\*/)).toBeNull();
+  });
+
+  test("formats a table in a reply", async () => {
+    await renderStarted();
+    answer = reply("| Ciutat | Habitants |\n| --- | --- |\n| Girona | 100.000 |");
+
+    await send("Hello");
+
+    expect(screen.getByRole("columnheader", { name: "Ciutat" })).toBeDefined();
+    expect(screen.getByRole("cell", { name: "Girona" })).toBeDefined();
+  });
+
+  test("opens a link in a reply in a new tab", async () => {
+    await renderStarted();
+    answer = reply("Mira [la Viquipèdia](https://ca.wikipedia.org).");
+
+    await send("Hello");
+
+    const link = screen.getByRole<HTMLAnchorElement>("link", { name: "la Viquipèdia" });
+    expect(link.href).toBe("https://ca.wikipedia.org/");
+    expect(link.target).toBe("_blank");
+  });
+
+  test("keeps the line breaks of a reply", async () => {
+    await renderStarted();
+    answer = reply("Primera línia\nSegona línia");
+
+    await send("Hello");
+
+    const bubble = screen.getByText(/Primera línia/);
+    expect(bubble.querySelectorAll("br")).toHaveLength(1);
+  });
+
+  test("doesn't load an image a reply points to", async () => {
+    await renderStarted();
+    answer = reply("Mira ![un gat](https://example.com/gat.png) aquí.");
+
+    await send("Hello");
+
+    expect(screen.getByText(/Mira/)).toBeDefined();
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  test("shows the user's own message exactly as typed", async () => {
+    await renderStarted();
+
+    await send("what does **molt** mean?");
+
+    expect(screen.getByText("what does **molt** mean?")).toBeDefined();
+  });
+});
+
 describe("cold start after the session has started", () => {
   test("never shows the wake message again, only Pensant…", async () => {
     await renderStarted();

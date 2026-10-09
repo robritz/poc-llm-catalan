@@ -8,7 +8,8 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 // `hidden` marks messages that are sent to the model but never rendered.
-type ChatMessage = UIMessage<{ hidden?: boolean }>;
+// `translate` marks messages that are to be translated instead of answered.
+type ChatMessage = UIMessage<{ hidden?: boolean; translate?: boolean }>;
 
 // Sent when the session starts, to wake the model before the user chats.
 // Kept in the history so the model sees its own greeting, but never rendered.
@@ -85,6 +86,8 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   const [unlocked, setUnlocked] = useState(initiallyUnlocked);
   const [input, setInput] = useState("");
   const [started, setStarted] = useState(false);
+  // While on, what the user enters is translated as-is instead of answered.
+  const [translating, setTranslating] = useState(false);
   const { messages, sendMessage, setMessages, status, error, clearError } =
     useChat<ChatMessage>({
       // The session has started once the model has answered the greeting.
@@ -218,7 +221,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     if (!started) return;
 
     setInput("");
-    sendMessage({ text });
+    sendMessage(translating ? { text, metadata: { translate: true } } : { text });
   }
 
   const inputDisabled = unlocked && !started;
@@ -349,10 +352,39 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       </main>
 
       <form onSubmit={handleSubmit} className="flex shrink-0 gap-2 border-t border-black/10 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-white/10">
+        <button
+          type="button"
+          aria-label="Tradueix"
+          title="Tradueix"
+          aria-pressed={translating}
+          onClick={() => {
+            setTranslating((on) => !on);
+            inputRef.current?.focus();
+          }}
+          disabled={!started}
+          className={`shrink-0 rounded-full border p-2 disabled:opacity-40 ${
+            translating
+              ? "border-blue-600 bg-blue-600 text-white"
+              : "border-black/15 text-black/50 hover:text-black dark:border-white/20 dark:text-white/50 dark:hover:text-white"
+          }`}
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-6"
+          >
+            <path d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802" />
+          </svg>
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Escriu un missatge…"
+          placeholder={translating ? "Escriu un text per traduir…" : "Escriu un missatge…"}
           ref={inputRef}
           autoFocus
           disabled={inputDisabled}

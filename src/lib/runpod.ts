@@ -17,8 +17,8 @@ export const SYSTEM_PROMPT = [
 // The endpoint accepts four at most: with a fifth it returns an empty stream.
 export const SIGN_OFFS = ["\nSalutacions", " Salutacions", "(fi)"];
 
-// Used instead of SYSTEM_PROMPT for messages that begin with /t. The model
-// is too small to follow the /t rule reliably from a single prompt.
+// Used instead of SYSTEM_PROMPT for messages sent with translation switched
+// on. The model is too small to tell the two apart from a single prompt.
 export const TRANSLATION_PROMPT = [
   "You are a translator.",
   "Translate the text from the user into català and reply with only the translation.",

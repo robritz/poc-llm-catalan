@@ -104,16 +104,28 @@ describe("POST /api/chat", () => {
 
   test("lets a translation end with a sign-off", async () => {
     const model = mockModel("Salutacions");
-    const letter = [{ id: "1", role: "user", parts: [{ type: "text", text: "/t Regards" }] }];
+    const letter = [
+      {
+        id: "1",
+        role: "user",
+        metadata: { translate: true },
+        parts: [{ type: "text", text: "Regards" }],
+      },
+    ];
     await (await postChat(post("/api/chat", { messages: letter }))).text();
     expect(model.doStreamCalls[0].stopSequences).toBeUndefined();
   });
 
-  test("asks for a translation of a message that begins with /t", async () => {
+  test("asks for a translation of a message sent with translation on", async () => {
     const model = mockModel("On vius?");
     const translation = [
       ...messages,
-      { id: "2", role: "user", parts: [{ type: "text", text: "/t Where do you live?" }] },
+      {
+        id: "2",
+        role: "user",
+        metadata: { translate: true },
+        parts: [{ type: "text", text: "Where do you live?" }],
+      },
     ];
     await (await postChat(post("/api/chat", { messages: translation }))).text();
     expect(model.doStreamCalls[0].prompt).toEqual([

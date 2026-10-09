@@ -386,7 +386,10 @@ describe("hearing a reply", () => {
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
 
     hold("Hola!", 500);
-    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+    // The offer is a play icon, named for screen readers but with no word on it.
+    const button = screen.getByRole("button", { name: LISTEN_BUTTON });
+    expect(button.textContent).toBe("");
+    expect(button.querySelector("svg")).not.toBeNull();
   });
 
   test("doesn't offer it when the reply is let go early, or for the user's own message", async () => {

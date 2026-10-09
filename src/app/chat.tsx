@@ -53,6 +53,16 @@ function ReplyLink({ node, ...props }: React.ComponentProps<"a"> & ExtraProps) {
   return <a {...props} {...(external && { target: "_blank", rel: "noopener noreferrer" })} />;
 }
 
+// As tall as a line of the button's text, so the button keeps its height
+// when the icon gives way to "Carregant…".
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-5">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
 async function unlock(phrase: string): Promise<boolean> {
   const res = await fetch("/api/unlock", {
     method: "POST",
@@ -282,9 +292,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                   <button
                     onClick={() => listen(m.id, messageText(m))}
                     disabled={listenOffer.status === "loading"}
+                    aria-label={listenOffer.status === "loading" ? undefined : "Escolta"}
                     className="rounded-full border border-black/15 px-3 py-1 text-sm disabled:opacity-40 dark:border-white/20"
                   >
-                    {listenOffer.status === "loading" ? "Carregant…" : "Escolta"}
+                    {listenOffer.status === "loading" ? "Carregant…" : <PlayIcon />}
                   </button>
                   {listenOffer.status === "failed" && (
                     <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>

@@ -17,8 +17,9 @@ const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 // How long a reply must be held before the option to hear it appears.
 const HOLD_MS = 500;
 
-// A reply that offers to be spoken, after being held.
-type ListenStatus = "offered" | "loading" | "failed";
+// A reply that offers to be spoken, after being held, or to be muted while
+// it is being spoken.
+type ListenStatus = "offered" | "loading" | "playing" | "failed";
 type ListenOffer = { id: string; status: ListenStatus };
 
 // An empty WAV file. Playing it during the tap lets iOS Safari play the
@@ -51,6 +52,24 @@ function ReplyLink({ node, ...props }: React.ComponentProps<"a"> & ExtraProps) {
   void node; // react-markdown's syntax node, not an attribute
   const external = !props.href?.startsWith("#");
   return <a {...props} {...(external && { target: "_blank", rel: "noopener noreferrer" })} />;
+}
+
+const LISTEN_BUTTON_STYLE =
+  "rounded-full border border-black/15 px-3 py-1 text-sm disabled:opacity-40 dark:border-white/20";
+
+const SPEAKER_ICON =
+  "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+const MUTE_ICON =
+  "M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z";
+
+// As tall as a line of the button's text, so the button keeps its height
+// when the icon gives way to "Carregant…".
+function Icon({ path }: { path: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-5">
+      <path d={path} />
+    </svg>
+  );
 }
 
 async function unlock(phrase: string): Promise<boolean> {
@@ -129,9 +148,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     listenOfferRef.current?.scrollIntoView({ block: "nearest" });
   }, [listenOfferId]);
 
-  // Any press outside the offer dismisses it.
+  // Any press outside the offer dismisses it, except while the reply is
+  // being spoken: the mute button stays for as long as there is sound.
   useEffect(() => {
-    if (!listenOffer) return;
+    if (!listenOffer || listenOffer.status === "playing") return;
     const dismiss = (e: PointerEvent) => {
       if (!(e.target as Element).closest?.("[data-listen-offer]")) setListenOffer(null);
     };
@@ -141,7 +161,11 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
 
   function startHold(id: string) {
     clearTimeout(holdTimer.current);
-    holdTimer.current = setTimeout(() => setListenOffer({ id, status: "offered" }), HOLD_MS);
+    holdTimer.current = setTimeout(() => {
+      // One reply at a time: the new offer replaces the mute button.
+      audioRef.current?.pause();
+      setListenOffer({ id, status: "offered" });
+    }, HOLD_MS);
   }
 
   function cancelHold() {
@@ -161,11 +185,17 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
       if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
       speechURLRef.current = url;
       audio.src = url;
+      audio.onended = () => update(null);
       await audio.play();
-      update(null);
+      update("playing");
     } catch {
       update("failed");
     }
+  }
+
+  function mute() {
+    audioRef.current?.pause();
+    setListenOffer(null);
   }
 
   function startSession() {
@@ -211,6 +241,7 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
             onClick={() => {
               setMessages([]);
               clearError();
+              mute();
             }}
             disabled={loading}
             className="text-sm text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
@@ -279,13 +310,23 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
               </div>
               {listenOffer?.id === m.id && (
                 <div ref={listenOfferRef} data-listen-offer className="flex items-center gap-2">
-                  <button
-                    onClick={() => listen(m.id, messageText(m))}
-                    disabled={listenOffer.status === "loading"}
-                    className="rounded-full border border-black/15 px-3 py-1 text-sm disabled:opacity-40 dark:border-white/20"
-                  >
-                    {listenOffer.status === "loading" ? "Carregant…" : "Escolta"}
-                  </button>
+                  {listenOffer.status === "playing" ? (
+                    <button onClick={mute} aria-label="Silencia" className={LISTEN_BUTTON_STYLE}>
+                      <Icon path={MUTE_ICON} />
+                    </button>
+                  ) : listenOffer.status === "loading" ? (
+                    <button disabled className={LISTEN_BUTTON_STYLE}>
+                      Carregant…
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => listen(m.id, messageText(m))}
+                      aria-label="Escolta"
+                      className={LISTEN_BUTTON_STYLE}
+                    >
+                      <Icon path={SPEAKER_ICON} />
+                    </button>
+                  )}
                   {listenOffer.status === "failed" && (
                     <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>
                   )}

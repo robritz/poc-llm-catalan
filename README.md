@@ -1,6 +1,6 @@
 # Xat en català
 
-A proof-of-concept chatbot that replies in [Catalan](https://en.wikipedia.org/wiki/Catalan_language), no matter which language you write in, to help aid in learning the language. It switches to another language only when you ask it to, and translates any message you start with `/t` into Catalan. It's a Next.js app built on the [Vercel AI SDK](https://ai-sdk.dev) that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint running [Salamandra 7B Instruct](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606).
+A proof-of-concept chatbot that replies in [Catalan](https://en.wikipedia.org/wiki/Catalan_language), no matter which language you write in, to help aid in learning the language. It switches to another language only when you ask it to, and translates what you write into Catalan while the translation toggle is on. It's a Next.js app built on the [Vercel AI SDK](https://ai-sdk.dev) that talks to a model hosted on a [RunPod serverless](https://docs.runpod.io/serverless/overview) vLLM endpoint running [Salamandra 7B Instruct](https://huggingface.co/BSC-LT/salamandra-7b-instruct-2606).
 
 <img width="386" height="678" alt="image" src="https://github.com/user-attachments/assets/386b9a16-38ae-4f66-8f30-8f763b23c5d3" />
 
@@ -41,7 +41,7 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 ```
 
 - The browser uses the AI SDK's `useChat` hook, which sends the whole conversation on every message. The server keeps only the user and assistant text, adds the system prompt, and calls the model with `streamText` through the endpoint's OpenAI-compatible API (`/openai/v1`).
-- A message that begins with `/t` is translated into Catalan instead of answered, e.g. `/t Where do you live?` gets "On vius?". The server spots the command, removes it, and sends only that text to the model, without the rest of the conversation, with a translation prompt in place of the usual system prompt. The model is too small to follow a `/t` rule reliably from the system prompt alone.
+- The toggle button to the left of the input switches translation on and off. While it is on, what you enter is translated into Catalan as-is instead of answered, e.g. "Where do you live?" gets "On vius?"; while it is off, it is handled as a normal chat message. The browser marks such a message in its metadata, and the server sends only that text to the model, without the rest of the conversation, with a translation prompt in place of the usual system prompt. The model is too small to tell a text to translate from one to answer from the system prompt alone.
 - The reply is streamed back and shown as it is written. Until the first words arrive, the UI shows "Pensant…".
 - The endpoint scales to zero when idle. **The first request after idle time can take about 3–4 minutes** while a worker starts, and the request stays open for all of that time. To absorb that wait up front, each page load begins with an "Iniciar la sessió" button. It sends a hidden message to wake the model, asking it to say hello and share a random fact about Catalonia, and the UI shows "La IA s'està despertant. Un moment, si us plau." until the greeting comes back; only then is the chat enabled. After that the message is never shown again; a slow reply later in the session just shows "Pensant…". To avoid cold starts, set the endpoint's minimum active workers to 1 in RunPod; that worker is billed while idle.
 - Because the request stays open during a cold start, `/api/chat` sets `maxDuration` to 300 seconds. If your host caps function time below the cold start, the session start fails with an error and can be retried once the worker is up.
@@ -71,7 +71,7 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 
 | Path                                | Purpose                                                         |
 | ----------------------------------- | --------------------------------------------------------------- |
-| `src/lib/chat.ts`                   | Validates the browser's messages, reduces them to plain text, and handles the `/t` command |
+| `src/lib/chat.ts`                   | Validates the browser's messages, reduces them to plain text, and picks out translation requests |
 | `src/lib/runpod.ts`                 | System and translation prompts, and the AI SDK model for the RunPod endpoint |
 | `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
 | `src/lib/speech-text.ts`            | Normalizes a reply into text the TTS model can read             |
@@ -83,7 +83,7 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 
-To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`; `TRANSLATION_PROMPT` in the same file is used for `/t` messages. To change the session-start message, edit `GREETING_PROMPT` in `src/app/chat.tsx`.
+To change the model's behavior, edit `SYSTEM_PROMPT` in `src/lib/runpod.ts`; `TRANSLATION_PROMPT` in the same file is used for messages sent with translation on. To change the session-start message, edit `GREETING_PROMPT` in `src/app/chat.tsx`.
 
 ## Mobile
 

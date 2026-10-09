@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toModelMessages, withoutTranslateCommand } from "./chat";
+import { toModelMessages, translationRequest } from "./chat";
 
 function uiMessage(role: string, ...parts: unknown[]) {
   return { id: "1", role, parts };
@@ -43,39 +43,34 @@ describe("toModelMessages", () => {
   });
 });
 
-describe("withoutTranslateCommand", () => {
-  const history = [
-    { role: "user" as const, content: "/t Good morning" },
-    { role: "assistant" as const, content: "Bon dia" },
-  ];
+describe("translationRequest", () => {
+  const translated = (text: string) => ({
+    ...uiMessage("user", textPart(text)),
+    metadata: { translate: true },
+  });
+  const history = [translated("Good morning"), uiMessage("assistant", textPart("Bon dia"))];
 
-  test.each(["/t Where do you live?", "  /T   Where do you live?", "/t\nWhere do you live?"])(
-    "reduces %j to a request to translate the text",
-    (content) => {
-      expect(withoutTranslateCommand([...history, { role: "user", content }])).toEqual({
-        messages: [
-          { role: "user", content: "Translate this text into català:\n\nWhere do you live?" },
-        ],
-        translate: true,
-      });
-    },
-  );
-
-  test("removes the command from earlier messages of a normal request", () => {
-    expect(withoutTranslateCommand([...history, { role: "user", content: "Gràcies" }])).toEqual({
-      messages: [
-        { role: "user", content: "Good morning" },
-        { role: "assistant", content: "Bon dia" },
-        { role: "user", content: "Gràcies" },
-      ],
-      translate: false,
-    });
+  test("reduces the conversation to a request to translate its newest message", () => {
+    expect(translationRequest([...history, translated("Where do you live?")])).toEqual([
+      { role: "user", content: "Translate this text into català:\n\nWhere do you live?" },
+    ]);
   });
 
-  test.each(["/tmp is full", "What does /t do?", "/t"])(
-    "doesn't treat %j as a translation request",
-    (content) => {
-      expect(withoutTranslateCommand([{ role: "user", content }]).translate).toBe(false);
-    },
-  );
+  test("leaves the text exactly as it was entered", () => {
+    expect(translationRequest([translated("/t  say hello\nto me ")])).toEqual([
+      { role: "user", content: "Translate this text into català:\n\n/t  say hello\nto me " },
+    ]);
+  });
+
+  test("isn't made for a message sent with translation off", () => {
+    expect(translationRequest([...history, uiMessage("user", textPart("Gràcies"))])).toBeNull();
+  });
+
+  test.each([
+    ["a flag that isn't true", { ...uiMessage("user", textPart("Hola")), metadata: { translate: "yes" } }],
+    ["a reply", { ...uiMessage("assistant", textPart("Hola")), metadata: { translate: true } }],
+    ["a message without text", { ...uiMessage("user"), metadata: { translate: true } }],
+  ])("isn't made for %s", (_name, message) => {
+    expect(translationRequest([uiMessage("user", textPart("Hola")), message])).toBeNull();
+  });
 });

@@ -1,5 +1,5 @@
 import { createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
-import { toModelMessages, withoutTranslateCommand } from "@/lib/chat";
+import { toModelMessages, translationRequest } from "@/lib/chat";
 import { chatModel, SIGN_OFFS, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "@/lib/runpod";
 import { isUnlocked } from "@/lib/unlock";
 
@@ -16,15 +16,16 @@ export async function POST(request: Request) {
   if (!conversation) {
     return new Response("Invalid messages", { status: 400 });
   }
-  const { messages, translate } = withoutTranslateCommand(conversation);
+  // A translation is made of the newest message alone, without the conversation.
+  const translation = translationRequest(body.messages);
 
   try {
     const result = streamText({
       model: chatModel(),
-      instructions: translate ? TRANSLATION_PROMPT : SYSTEM_PROMPT,
-      messages,
+      instructions: translation ? TRANSLATION_PROMPT : SYSTEM_PROMPT,
+      messages: translation ?? conversation,
       // A translation may be of a text that ends with a sign-off.
-      stopSequences: translate ? undefined : SIGN_OFFS,
+      stopSequences: translation ? undefined : SIGN_OFFS,
       onError: ({ error }) => console.error(error),
     });
     return createUIMessageStreamResponse({

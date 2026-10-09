@@ -8,6 +8,7 @@ const START_BUTTON = "Iniciar la sessió";
 const WAKE_MESSAGE = "La IA s'està despertant. Un moment, si us plau.";
 const LISTEN_BUTTON = "Escolta";
 const MUTE_BUTTON = "Silencia";
+const TRANSLATE_TOGGLE = "Tradueix";
 
 // What the fake API does with the next chat request: stream a reply, fail,
 // or (for a pending promise) keep the request open like a cold start.
@@ -77,7 +78,7 @@ async function settle() {
 }
 
 function input() {
-  return screen.getByPlaceholderText<HTMLInputElement>("Escriu un missatge…");
+  return screen.getByRole<HTMLInputElement>("textbox");
 }
 
 async function send(text: string) {
@@ -132,6 +133,18 @@ function sentConversations() {
         }),
       ),
     );
+}
+
+// Whether each message of the last conversation sent asked to be translated.
+function sentTranslateFlags() {
+  const [, init] = fetchMock.mock.calls.findLast(([url]) => url === "/api/chat")!;
+  return JSON.parse(init!.body as string).messages.map(
+    (m: { metadata?: { translate?: boolean } }) => m.metadata?.translate === true,
+  );
+}
+
+function translateToggle() {
+  return screen.getByRole<HTMLButtonElement>("button", { name: TRANSLATE_TOGGLE });
 }
 
 beforeEach(() => {
@@ -314,6 +327,59 @@ describe("chatting", () => {
 
     await send("Hello again");
     expect(sentConversations().at(-1)).toEqual([{ role: "user", content: "Hello again" }]);
+  });
+});
+
+describe("translating", () => {
+  test("is off to begin with, so a message is sent as a normal chat message", async () => {
+    await renderStarted();
+    expect(translateToggle().getAttribute("aria-pressed")).toBe("false");
+
+    await send("Where do you live?");
+
+    expect(sentTranslateFlags()).toEqual([false, false, false]);
+  });
+
+  test("sends the text to be translated, exactly as entered, while it's on", async () => {
+    await renderStarted();
+
+    fireEvent.click(translateToggle());
+    expect(translateToggle().getAttribute("aria-pressed")).toBe("true");
+    await send("Where do you live?");
+
+    expect(sentConversations().at(-1).at(-1)).toEqual({
+      role: "user",
+      content: "Where do you live?",
+    });
+    expect(sentTranslateFlags()).toEqual([false, false, true]);
+    expect(screen.getByText("Where do you live?")).toBeDefined();
+  });
+
+  test("stays on until it's switched off", async () => {
+    await renderStarted();
+
+    fireEvent.click(translateToggle());
+    await send("Good morning");
+    expect(translateToggle().getAttribute("aria-pressed")).toBe("true");
+    await send("Good night");
+    expect(sentTranslateFlags().slice(-3)).toEqual([true, false, true]);
+
+    fireEvent.click(translateToggle());
+    await send("Thanks");
+    expect(sentTranslateFlags().at(-1)).toBe(false);
+  });
+
+  test("sits before the input and returns the cursor to it", async () => {
+    await renderStarted();
+
+    expect(input().previousElementSibling).toBe(translateToggle());
+    fireEvent.click(translateToggle());
+    expect(document.activeElement).toBe(input());
+  });
+
+  test("can't be switched on before the session has started", () => {
+    render(<Chat initiallyUnlocked />);
+    expect(translateToggle().disabled).toBe(true);
   });
 });
 

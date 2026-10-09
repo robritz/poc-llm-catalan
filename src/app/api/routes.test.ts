@@ -12,6 +12,7 @@ vi.mock("@/lib/runpod", () => ({
   chatModel: vi.fn(),
   SYSTEM_PROMPT: "Respon en català.",
   TRANSLATION_PROMPT: "Tradueix al català.",
+  SIGN_OFFS: ["\nAdéu"],
 }));
 vi.mock("@/lib/tts");
 vi.mock("@/lib/unlock");
@@ -93,6 +94,19 @@ describe("POST /api/chat", () => {
       { role: "system", content: "Respon en català." },
       { role: "user", content: [{ type: "text", text: "Hola" }] },
     ]);
+  });
+
+  test("has the model stop where it would sign off", async () => {
+    const model = mockModel("Bon dia");
+    await (await postChat(post("/api/chat", { messages }))).text();
+    expect(model.doStreamCalls[0].stopSequences).toEqual(["\nAdéu"]);
+  });
+
+  test("lets a translation end with a sign-off", async () => {
+    const model = mockModel("Salutacions");
+    const letter = [{ id: "1", role: "user", parts: [{ type: "text", text: "/t Regards" }] }];
+    await (await postChat(post("/api/chat", { messages: letter }))).text();
+    expect(model.doStreamCalls[0].stopSequences).toBeUndefined();
   });
 
   test("asks for a translation of a message that begins with /t", async () => {

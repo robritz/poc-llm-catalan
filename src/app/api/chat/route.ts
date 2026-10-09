@@ -1,6 +1,6 @@
 import { createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
 import { toModelMessages, withoutTranslateCommand } from "@/lib/chat";
-import { chatModel, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "@/lib/runpod";
+import { chatModel, SIGN_OFFS, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "@/lib/runpod";
 import { isUnlocked } from "@/lib/unlock";
 
 // The request stays open while a cold worker starts, which can take minutes.
@@ -23,6 +23,8 @@ export async function POST(request: Request) {
       model: chatModel(),
       instructions: translate ? TRANSLATION_PROMPT : SYSTEM_PROMPT,
       messages,
+      // A translation may be of a text that ends with a sign-off.
+      stopSequences: translate ? undefined : SIGN_OFFS,
       onError: ({ error }) => console.error(error),
     });
     return createUIMessageStreamResponse({

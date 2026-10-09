@@ -2,8 +2,11 @@ import "server-only";
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
-export const SYSTEM_PROMPT =
-  "You are a helpful assistant that writes concise responses in català, whatever language the user writes in. Use another language only when the user asks for it.";
+export const SYSTEM_PROMPT = [
+  "You are a helpful assistant that writes concise responses in català, whatever language the user writes in.",
+  "Use another language only when the user asks for it.",
+  "Stop when the answer is complete: do not end a reply with a goodbye or a sign-off unless the user says goodbye first.",
+].join(" ");
 
 // Used instead of SYSTEM_PROMPT for messages that begin with /t. The model
 // is too small to follow the /t rule reliably from a single prompt.

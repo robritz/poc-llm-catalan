@@ -32,14 +32,11 @@ export function toModelMessages(value: unknown): ModelMessage[] | null {
 // Reduces the conversation to a request to translate its newest message, if
 // that was sent with translation switched on. The text is left as entered.
 // Returns null for a message that is to be answered as usual.
-export function translationRequest(value: unknown[]): ModelMessage[] | null {
-  const last = value[value.length - 1] as {
-    role?: unknown;
-    parts: unknown[];
-    metadata?: { translate?: unknown } | null;
-  };
-  if (last.role !== "user" || last.metadata?.translate !== true) return null;
-  const content = text(last.parts);
+export function translationRequest(value: unknown): ModelMessage[] | null {
+  if (!Array.isArray(value)) return null;
+  const last = value[value.length - 1];
+  if (last?.role !== "user" || last.metadata?.translate !== true) return null;
+  const content = Array.isArray(last.parts) ? text(last.parts) : "";
   if (!content) return null;
   return [{ role: "user", content: `Translate this text into català:\n\n${content}` }];
 }

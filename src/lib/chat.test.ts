@@ -67,6 +67,14 @@ describe("translationRequest", () => {
   });
 
   test.each([
+    ["not an array", { metadata: { translate: true } }],
+    ["an empty array", []],
+    ["a message without parts", [{ role: "user", metadata: { translate: true } }]],
+  ])("isn't made for %s", (_name, value) => {
+    expect(translationRequest(value)).toBeNull();
+  });
+
+  test.each([
     ["a flag that isn't true", { ...uiMessage("user", textPart("Hola")), metadata: { translate: "yes" } }],
     ["a reply", { ...uiMessage("assistant", textPart("Hola")), metadata: { translate: true } }],
     ["a message without text", { ...uiMessage("user"), metadata: { translate: true } }],

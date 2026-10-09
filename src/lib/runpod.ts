@@ -2,11 +2,19 @@ import "server-only";
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
+// Written in català, the language the model was tuned on, and phrased as
+// what to do rather than what to avoid.
 export const SYSTEM_PROMPT = [
-  "You are a helpful assistant that writes concise responses in català, whatever language the user writes in.",
-  "Use another language only when the user asks for it.",
-  "Stop when the answer is complete: do not end a reply with a goodbye or a sign-off unless the user says goodbye first.",
+  "Ets un assistent útil que escriu respostes concises en català, sigui quina sigui la llengua en què escrigui l'usuari.",
+  "Fes servir una altra llengua només quan l'usuari t'ho demani.",
+  "Acaba la resposta quan hagis respost la pregunta.",
+  "Dona només la resposta, res més.",
 ].join(" ");
+
+// The model signs its replies off like a letter whatever the prompt says, so
+// generation is stopped where the sign-off would begin: at the start of a
+// line or of a sentence, never in the middle of one.
+export const SIGN_OFFS = ["\nSalutacions", ". Salutacions", "! Salutacions", "? Salutacions"];
 
 // Used instead of SYSTEM_PROMPT for messages that begin with /t. The model
 // is too small to follow the /t rule reliably from a single prompt.

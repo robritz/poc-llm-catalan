@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { generateText } from "ai";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { chatModel, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "./runpod";
+import { chatModel, SIGN_OFFS, SYSTEM_PROMPT, TRANSLATION_PROMPT } from "./runpod";
 
 const fetchMock = vi.fn();
 
@@ -44,4 +44,10 @@ describe("chatModel", () => {
 test("both prompts ask for Catalan", () => {
   expect(SYSTEM_PROMPT).toContain("català");
   expect(TRANSLATION_PROMPT).toContain("català");
+});
+
+// With a fifth, the endpoint answers 200 with an empty stream, which the AI
+// SDK reports as "Response stream ended without a finish reason".
+test("asks for no more stop sequences than the endpoint accepts", () => {
+  expect(SIGN_OFFS.length).toBeLessThanOrEqual(4);
 });

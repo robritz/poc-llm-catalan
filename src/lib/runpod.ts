@@ -11,10 +11,12 @@ export const SYSTEM_PROMPT = [
   "Dona només la resposta, res més.",
 ].join(" ");
 
-// The model signs its replies off like a letter whatever the prompt says, so
-// generation is stopped where the sign-off would begin: at the start of a
-// line or of a sentence, never in the middle of one.
-export const SIGN_OFFS = ["\nSalutacions", ". Salutacions", "! Salutacions", "? Salutacions"];
+// The model signs its replies off whatever the prompt says, so generation is
+// stopped where a sign-off would begin. A stop is cut from the reply, so each
+// one starts after the full stop of the sentence before it; the capital
+// keeps "Salutacions" from matching in the middle of a sentence.
+// The endpoint accepts four at most: with a fifth it returns an empty stream.
+export const SIGN_OFFS = ["\nSalutacions", " Salutacions", "(fi)"];
 
 // Used instead of SYSTEM_PROMPT for messages that begin with /t. The model
 // is too small to follow the /t rule reliably from a single prompt.

@@ -75,6 +75,7 @@ export function saveExchange(exchange: Exchange) {
   );
 }
 
+// Takes the exchange out of the list. Deleting a saved exchange is this too.
 export function unsaveExchange(exchange: Exchange) {
   change((exchanges) => exchanges.filter((saved) => !isSameExchange(saved, exchange)));
 }

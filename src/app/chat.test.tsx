@@ -12,6 +12,7 @@ const TRANSLATE_TOGGLE = "Tradueix";
 const SAVE_TOGGLE = "Desa";
 const SAVED_BUTTON = "Desats";
 const BACK_BUTTON = "Torna al xat";
+const DELETE_BUTTON = "Suprimeix";
 const NOTHING_SAVED =
   "Encara no has desat res. Toca una resposta i després el marcador per desar-la.";
 
@@ -170,10 +171,27 @@ function savedRow(message: string) {
 }
 
 // The messages of the saved exchanges, in the order the list shows them.
+// A row is the button that opens; the ones under its reply don't.
 function savedMessages() {
-  return within(screen.getByRole("list"))
-    .getAllByRole("button")
-    .map((row) => row.textContent);
+  const rows = screen.getByRole("list").querySelectorAll("button[aria-expanded]");
+  return Array.from(rows, (row) => row.textContent);
+}
+
+// A button under the reply of the saved exchange with the given message.
+function savedRowButton(message: string, name: string) {
+  const item = savedRow(message).closest("li")!;
+  return within(item).getByRole<HTMLButtonElement>("button", { name });
+}
+
+// Saves an exchange for each message, so that the list shows them in this order.
+async function renderSaved(...messages: string[]) {
+  await renderStarted();
+  for (const message of messages.toReversed()) {
+    answer = reply(`Resposta a ${message}`);
+    await send(message);
+    toggleSaved(`Resposta a ${message}`);
+  }
+  openSaved();
 }
 
 // The text of each conversation sent to the model.
@@ -1057,16 +1075,17 @@ describe("the saved exchanges", () => {
     expect(document.querySelector("img")).toBeNull();
   });
 
-  test("don't offer to speak or save a reply that is tapped", async () => {
+  test("offer nothing more when a reply is tapped: its options are already shown", async () => {
     await renderStarted();
     await send("Hello");
     toggleSaved("Bon dia!");
     openSaved();
     fireEvent.click(savedRow("Hello"));
+    const options = savedRow("Hello").closest("li")!.innerHTML;
 
     tap("Bon dia!");
 
-    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(savedRow("Hello").closest("li")!.innerHTML).toBe(options);
     expect(screen.queryByRole("button", { name: SAVE_TOGGLE })).toBeNull();
   });
 
@@ -1107,5 +1126,438 @@ describe("the saved exchanges", () => {
 
     expect(screen.getByText("Bon dia!")).toBeDefined();
     expect(screen.queryByText("Pensant…")).toBeNull();
+  });
+});
+
+describe("deleting a saved exchange", () => {
+  test("offers to delete only the saved exchange whose row is open", async () => {
+    await renderSaved("One", "Two");
+    expect(screen.queryByRole("button", { name: DELETE_BUTTON })).toBeNull();
+
+    fireEvent.click(savedRow("Two"));
+
+    expect(screen.getAllByRole("button", { name: DELETE_BUTTON })).toHaveLength(1);
+    expect(savedRowButton("Two", DELETE_BUTTON)).toBeDefined();
+  });
+
+  test("removes the saved exchange at once and leaves no row open", async () => {
+    await renderSaved("One", "Two", "Three");
+    fireEvent.click(savedRow("Two"));
+
+    fireEvent.click(savedRowButton("Two", DELETE_BUTTON));
+
+    expect(savedMessages()).toEqual(["One", "Three"]);
+    expect(screen.queryByRole("button", { expanded: true })).toBeNull();
+  });
+
+  test("moves the keyboard to the row that takes the deleted one's place", async () => {
+    await renderSaved("One", "Two", "Three");
+    fireEvent.click(savedRow("Two"));
+    fireEvent.click(savedRowButton("Two", DELETE_BUTTON));
+    expect(document.activeElement).toBe(savedRow("Three"));
+
+    fireEvent.click(savedRow("Three"));
+    fireEvent.click(savedRowButton("Three", DELETE_BUTTON));
+    expect(document.activeElement).toBe(savedRow("One"));
+  });
+
+  test("shows that nothing is saved once the last one is deleted", async () => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+
+    fireEvent.click(savedRowButton("One", DELETE_BUTTON));
+
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("leaves the reply in the conversation unsaved, in this session and a later one", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("One"));
+    fireEvent.click(savedRowButton("One", DELETE_BUTTON));
+
+    // The offer under that reply is still open from when it was saved.
+    backToChat();
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+
+    cleanup();
+    render(<Chat initiallyUnlocked />);
+    openSaved();
+    expect(savedMessages()).toEqual(["Two"]);
+  });
+});
+
+describe("hearing a saved reply", () => {
+  test("offers to speak the reply of the open row, and speaks it", async () => {
+    await renderSaved("One", "Two");
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+
+    fireEvent.click(savedRow("Two"));
+    expect(savedRowButton("Two", LISTEN_BUTTON)).toBeDefined();
+    await clickListen();
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === "/api/speak")!;
+    expect(JSON.parse(init!.body as string)).toEqual({ text: "Resposta a Two" });
+    expect(played).toEqual(["blob:speech"]);
+  });
+
+  test("shows it is loading while the audio is prepared", async () => {
+    await renderSaved("One");
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    fireEvent.click(savedRow("One"));
+
+    await clickListen();
+
+    expect(savedRowButton("One", "Carregant…").disabled).toBe(true);
+    expect(played).toEqual([]);
+
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toEqual(["blob:speech"]);
+    expect(screen.queryByRole("button", { name: "Carregant…" })).toBeNull();
+  });
+
+  test("says so when the reply can't be spoken", async () => {
+    await renderSaved("One");
+    speech = new Response("Upstream error", { status: 502 });
+    fireEvent.click(savedRow("One"));
+
+    await clickListen();
+
+    expect(screen.getByText("No s'ha pogut reproduir l'àudio.")).toBeDefined();
+    expect(savedRowButton("One", LISTEN_BUTTON)).toBeDefined();
+    expect(played).toEqual([]);
+  });
+
+  test("shows a mute button in the open row, in place of the speaker button, and one in the header", async () => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+
+    await clickListen();
+
+    expect(savedRowButton("One", MUTE_BUTTON)).toBe(replyMute());
+    expect(headerMute()).not.toBeNull();
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test.each([
+    ["in the row", replyMute],
+    ["in the header", headerMute],
+  ])("ends the sound when it is muted %s", async (_, muteButton) => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+    expect(FakeAudio.current.paused).toBe(false);
+
+    fireEvent.click(muteButton()!);
+
+    expect(FakeAudio.current.paused).toBe(true);
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).toBeNull();
+    expect(savedRowButton("One", LISTEN_BUTTON)).toBeDefined();
+  });
+
+  test("withdraws both mute buttons when the speech ends", async () => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    act(() => FakeAudio.current.onended!());
+
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).toBeNull();
+    expect(savedRowButton("One", LISTEN_BUTTON)).toBeDefined();
+  });
+
+  test("speaks a muted saved reply again without preparing the audio again", async () => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+    fireEvent.click(replyMute()!);
+
+    await clickListen();
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak")).toHaveLength(1);
+    expect(played).toHaveLength(2);
+    expect(FakeAudio.current.paused).toBe(false);
+  });
+
+  test("no longer says a saved reply couldn't be spoken once the list is opened again", async () => {
+    await renderSaved("One");
+    speech = new Response("Upstream error", { status: 502 });
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    backToChat();
+    openSaved();
+    fireEvent.click(savedRow("One"));
+
+    expect(screen.queryByText("No s'ha pogut reproduir l'àudio.")).toBeNull();
+    expect(savedRowButton("One", LISTEN_BUTTON)).toBeDefined();
+  });
+
+  test("works before the session has started", async () => {
+    await renderSaved("One");
+    cleanup();
+    render(<Chat initiallyUnlocked />);
+    openSaved();
+    fireEvent.click(savedRow("One"));
+
+    await clickListen();
+
+    expect(played).toEqual(["blob:speech"]);
+    expect(replyMute()).not.toBeNull();
+  });
+});
+
+describe("one sound across the conversation and the saved exchanges", () => {
+  // A session with one exchange, "Hello" answered by "Bon dia!", which is saved.
+  async function renderWithSavedHello() {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+  }
+
+  test("keeps speaking a saved reply when the user returns to the conversation", async () => {
+    await renderWithSavedHello();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+
+    backToChat();
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(headerMute()).not.toBeNull();
+    // The reply in the conversation didn't start the sound: it can be asked to.
+    expect(replyMute()).toBeNull();
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+
+    fireEvent.click(headerMute()!);
+    expect(FakeAudio.current.paused).toBe(true);
+    expect(headerMute()).toBeNull();
+  });
+
+  test("keeps speaking a reply in the conversation when the list is opened", async () => {
+    await renderWithSavedHello();
+    await clickListen();
+
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(headerMute()).not.toBeNull();
+    // The saved exchange didn't start the sound: it can be asked to.
+    expect(replyMute()).toBeNull();
+    expect(savedRowButton("Hello", LISTEN_BUTTON)).toBeDefined();
+  });
+
+  test("starts a new sound for the same reply asked for in the other view", async () => {
+    await renderWithSavedHello();
+    await clickListen();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    speech = new Response("wav");
+    await clickListen();
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/speak")).toHaveLength(2);
+    expect(played).toHaveLength(2);
+    expect(savedRowButton("Hello", MUTE_BUTTON)).toBeDefined();
+
+    // The mute button has left the reply in the conversation for the row.
+    backToChat();
+    expect(replyMute()).toBeNull();
+  });
+
+  test("keeps speaking a saved reply when its row is closed and another is opened", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    fireEvent.click(savedRow("One"));
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).not.toBeNull();
+
+    fireEvent.click(savedRow("Two"));
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(savedRowButton("Two", LISTEN_BUTTON)).toBeDefined();
+
+    // Its mute button is back whenever its row is open.
+    fireEvent.click(savedRow("One"));
+    expect(savedRowButton("One", MUTE_BUTTON)).toBeDefined();
+  });
+
+  test("lets a sound asked for in the list take over from one in the conversation only once it has loaded", async () => {
+    await renderWithSavedHello();
+    await clickListen();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    await clickListen();
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(played).toHaveLength(1);
+    expect(savedRowButton("Hello", "Carregant…")).toBeDefined();
+    backToChat();
+    expect(replyMute()).not.toBeNull();
+
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toHaveLength(2);
+    expect(replyMute()).toBeNull();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    expect(savedRowButton("Hello", MUTE_BUTTON)).toBeDefined();
+  });
+
+  test("starts a sound asked for in the list once it is ready, though the user has gone back to the conversation", async () => {
+    await renderWithSavedHello();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+
+    backToChat();
+    expect(played).toEqual([]);
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toEqual(["blob:speech"]);
+    expect(headerMute()).not.toBeNull();
+    expect(replyMute()).toBeNull();
+  });
+
+  test("offers a saved reply again when one asked for later in the conversation is spoken instead", async () => {
+    await renderWithSavedHello();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+    backToChat();
+    speech = new Response("wav");
+    await clickListen();
+
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    expect(played).toHaveLength(1);
+    expect(savedRowButton("Hello", LISTEN_BUTTON)).toBeDefined();
+  });
+
+  test("ends the sound when the saved exchange it was started from is deleted", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    fireEvent.click(savedRowButton("One", DELETE_BUTTON));
+
+    expect(FakeAudio.current.paused).toBe(true);
+    expect(headerMute()).toBeNull();
+  });
+
+  test("ends the sound when the saved exchange it was started from is removed in another tab", async () => {
+    await renderSaved("One");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    act(() => {
+      localStorage.removeItem("saved-exchanges");
+      window.dispatchEvent(new StorageEvent("storage"));
+    });
+
+    expect(FakeAudio.current.paused).toBe(true);
+    expect(headerMute()).toBeNull();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("doesn't speak a saved reply that is deleted while its audio is prepared", async () => {
+    await renderSaved("One", "Two");
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+
+    fireEvent.click(savedRowButton("One", DELETE_BUTTON));
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toEqual([]);
+    expect(headerMute()).toBeNull();
+  });
+
+  test("keeps speaking one saved reply when another saved exchange is deleted", async () => {
+    await renderSaved("One", "Two");
+    fireEvent.click(savedRow("One"));
+    await clickListen();
+    fireEvent.click(savedRow("Two"));
+
+    fireEvent.click(savedRowButton("Two", DELETE_BUTTON));
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(headerMute()).not.toBeNull();
+  });
+
+  test("ends a sound started in the list when its exchange is unsaved from the conversation", async () => {
+    await renderWithSavedHello();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+    backToChat();
+
+    pressSaveToggle();
+
+    expect(FakeAudio.current.paused).toBe(true);
+    expect(headerMute()).toBeNull();
+  });
+
+  test("keeps speaking a reply in the conversation when it is unsaved there", async () => {
+    await renderWithSavedHello();
+    await clickListen();
+
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(replyMute()).not.toBeNull();
+    expect(headerMute()).not.toBeNull();
+  });
+
+  test("keeps speaking a saved reply when the conversation is cleared", async () => {
+    await renderWithSavedHello();
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+    backToChat();
+
+    fireEvent.click(screen.getByText("Nova conversa"));
+
+    expect(FakeAudio.current.paused).toBe(false);
+    expect(headerMute()).not.toBeNull();
+  });
+
+  test("still speaks a saved reply that is being prepared when the conversation is cleared", async () => {
+    await renderWithSavedHello();
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+    await clickListen();
+    backToChat();
+
+    fireEvent.click(screen.getByText("Nova conversa"));
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toEqual(["blob:speech"]);
+    expect(headerMute()).not.toBeNull();
   });
 });

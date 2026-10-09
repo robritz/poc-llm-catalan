@@ -16,7 +16,8 @@ The full design is in `docs/specs/saved-exchanges.md`; read "Sound". Terms are d
 - [ ] Either mute button ends the sound. Both are removed when the speech ends.
 - [ ] A sound started in the list carries on when the user returns to the conversation, and one started in the conversation carries on when the user opens the list.
 - [ ] A sound started in the list carries on when its row is closed, when another row is opened, and when rows are moved.
-- [ ] Starting a sound in one view ends a sound started in the other. There is one audio player and one sound at a time.
+- [ ] A sound asked for in one view takes over from a sound started in the other once it has loaded, and not before. There is one audio player and one sound at a time.
+- [ ] A saved reply that was muted or has ended is spoken again from the audio already loaded, with no second request, as in the conversation.
 - [ ] A sound requested in one view starts when it is ready even if the user has since switched view.
 - [ ] What is speaking identifies the one place the sound was started. The same text in the other view (a reply in the conversation that is also saved) shows an ordinary speaker button there, and tapping it starts a new sound.
 - [ ] The sound stops when the saved exchange it was started from leaves the list, for whatever reason. Deleting it with `Suprimeix` is the case to test.

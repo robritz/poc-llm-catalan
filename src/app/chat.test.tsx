@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import Chat from "./chat";
@@ -9,6 +9,11 @@ const WAKE_MESSAGE = "La IA s'està despertant. Un moment, si us plau.";
 const LISTEN_BUTTON = "Escolta";
 const MUTE_BUTTON = "Silencia";
 const TRANSLATE_TOGGLE = "Tradueix";
+const SAVE_TOGGLE = "Desa";
+const SAVED_BUTTON = "Desats";
+const BACK_BUTTON = "Torna al xat";
+const NOTHING_SAVED =
+  "Encara no has desat res. Mantén premuda una resposta i toca el marcador per desar-la.";
 
 // What the fake API does with the next chat request: stream a reply, fail,
 // or (for a pending promise) keep the request open like a cold start.
@@ -137,6 +142,43 @@ function headerMute() {
   return within(screen.getByRole("banner")).queryByRole("button", { name: MUTE_BUTTON });
 }
 
+// The bookmark under the reply that was held.
+function saveToggle() {
+  return screen.getByRole<HTMLButtonElement>("button", { name: SAVE_TOGGLE });
+}
+
+// Presses the bookmark as a finger would: the press comes before the click.
+function pressSaveToggle() {
+  fireEvent.pointerDown(saveToggle());
+  fireEvent.click(saveToggle());
+}
+
+// Holds a reply and presses the bookmark under it.
+function toggleSaved(replyText: string) {
+  hold(replyText, 500);
+  pressSaveToggle();
+}
+
+function openSaved() {
+  fireEvent.click(screen.getByRole("button", { name: SAVED_BUTTON }));
+}
+
+function backToChat() {
+  fireEvent.click(screen.getByRole("button", { name: BACK_BUTTON }));
+}
+
+// The row of a saved exchange: the button that carries its message.
+function savedRow(message: string) {
+  return screen.getByRole("button", { name: message });
+}
+
+// The messages of the saved exchanges, in the order the list shows them.
+function savedMessages() {
+  return within(screen.getByRole("list"))
+    .getAllByRole("button")
+    .map((row) => row.textContent);
+}
+
 // The text of each conversation sent to the model.
 function sentConversations() {
   return fetchMock.mock.calls
@@ -164,6 +206,7 @@ function translateToggle() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockClear();
   // jsdom doesn't implement scrollIntoView.
@@ -585,10 +628,11 @@ describe("hearing a reply", () => {
     expect(FakeAudio.current.paused).toBe(true);
     expect(replyMute()).toBeNull();
     expect(headerMute()).toBeNull();
-    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    // The offer is still open, so the reply can be spoken again from there.
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
   });
 
-  test("withdraws the mute button when the speech ends", async () => {
+  test("offers to speak the reply again when the speech ends", async () => {
     await renderStarted();
     hold("Hola!", 500);
     await clickListen();
@@ -596,6 +640,30 @@ describe("hearing a reply", () => {
     act(() => FakeAudio.current.onended!());
 
     expect(replyMute()).toBeNull();
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+  });
+
+  test("leaves nothing under the reply when the speech ends after the offer was dismissed", async () => {
+    await renderStarted();
+    hold("Hola!", 500);
+    await clickListen();
+    fireEvent.pointerDown(input());
+
+    act(() => FakeAudio.current.onended!());
+
+    expect(replyMute()).toBeNull();
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+  });
+
+  test("withdraws an unused offer when the mute button under another reply is pressed", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Hola!", 500);
+    await clickListen();
+    hold("Bon dia!", 500);
+
+    fireEvent.pointerDown(replyMute()!);
+
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
@@ -773,5 +841,264 @@ describe("hearing a reply", () => {
 
     expect(screen.getByText("No s'ha pogut reproduir l'àudio.")).toBeDefined();
     expect(played).toEqual([]);
+  });
+});
+
+describe("saving an exchange", () => {
+  test("saves the exchange of a held reply and lists it under its message", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    hold("Bon dia!", 500);
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+    const outline = saveToggle().innerHTML;
+    pressSaveToggle();
+
+    // The offer stays, and the bookmark shows the exchange is saved.
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(saveToggle().innerHTML).not.toBe(outline);
+
+    openSaved();
+
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+
+    fireEvent.click(savedRow("Hello"));
+
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+  });
+
+  test("unsaves the exchange when the bookmark is pressed again", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("false");
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("treats the same message with the same reply as one exchange", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    answer = reply("Bon dia!");
+    await send("Hello");
+
+    // The second reply says the same as the first, which is saved.
+    vi.useFakeTimers();
+    fireEvent.pointerDown(screen.getAllByText("Bon dia!")[1]);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    vi.useRealTimers();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+  });
+
+  test("keeps two replies to the same message apart, the newest first", async () => {
+    await renderStarted();
+    await send("Hello");
+    answer = reply("Bona tarda!");
+    await send("Hello");
+    answer = reply("De res!");
+    await send("Thanks");
+
+    toggleSaved("Bon dia!");
+    toggleSaved("Bona tarda!");
+    toggleSaved("De res!");
+    openSaved();
+
+    expect(savedMessages()).toEqual(["Thanks", "Hello", "Hello"]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Hello" })[0]);
+    expect(screen.getByText("Bona tarda!")).toBeDefined();
+    // The other reply to "Hello" stays closed.
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+  });
+
+  test("doesn't offer to save the greeting, which answers no message", async () => {
+    await renderStarted();
+
+    hold("Hola!", 500);
+
+    expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+    expect(screen.queryByRole("button", { name: SAVE_TOGGLE })).toBeNull();
+  });
+
+  test("still offers to save a reply once it is being spoken", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Bon dia!", 500);
+    await clickListen();
+
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(replyMute()).not.toBeNull();
+  });
+
+  test("offers to save a reply that is held while it is being spoken", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Bon dia!", 500);
+    await clickListen();
+    fireEvent.pointerDown(input());
+
+    hold("Bon dia!", 500);
+    pressSaveToggle();
+
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+    expect(replyMute()).not.toBeNull();
+    expect(FakeAudio.current.paused).toBe(false);
+  });
+
+  test("keeps saved exchanges when the conversation is cleared and in a later session", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    fireEvent.click(screen.getByText("Nova conversa"));
+
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+
+    cleanup();
+    await renderStarted();
+    openSaved();
+    expect(savedMessages()).toEqual(["Hello"]);
+
+    // The same message and reply, met again, are already saved.
+    backToChat();
+    await send("Hello");
+    hold("Bon dia!", 500);
+    expect(saveToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("the saved exchanges", () => {
+  test("can be opened once unlocked, before the session starts and while the model wakes", async () => {
+    render(<Chat initiallyUnlocked />);
+
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+
+    backToChat();
+    coldStart();
+    await clickStart();
+    openSaved();
+    expect(screen.getByText(NOTHING_SAVED)).toBeDefined();
+  });
+
+  test("can't be opened while locked", () => {
+    render(<Chat initiallyUnlocked={false} />);
+
+    expect(screen.queryByRole("button", { name: SAVED_BUTTON })).toBeNull();
+  });
+
+  test("take the place of the conversation, its input and Nova conversa", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+
+    openSaved();
+
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText("Nova conversa")).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVED_BUTTON })).toBeNull();
+  });
+
+  test("show one reply at a time, and none when the list is opened again", async () => {
+    await renderStarted();
+    await send("Hello");
+    answer = reply("De res!");
+    await send("Thanks");
+    toggleSaved("Bon dia!");
+    toggleSaved("De res!");
+    openSaved();
+
+    fireEvent.click(savedRow("Hello"));
+    fireEvent.click(savedRow("Thanks"));
+
+    expect(screen.queryByText("Bon dia!")).toBeNull();
+    expect(screen.getByText("De res!")).toBeDefined();
+
+    fireEvent.click(savedRow("Thanks"));
+    expect(screen.queryByText("De res!")).toBeNull();
+
+    fireEvent.click(savedRow("Hello"));
+    backToChat();
+    openSaved();
+    expect(savedRow("Hello").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("format a saved reply as the conversation does", async () => {
+    await renderStarted();
+    answer = reply("**Molt** bé: [Viquipèdia](https://ca.wikipedia.org) ![foto](https://example.com/a.png)");
+    await send("Hello");
+    toggleSaved("Molt");
+    openSaved();
+
+    fireEvent.click(savedRow("Hello"));
+
+    expect(screen.getByText("Molt").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "Viquipèdia" }).getAttribute("target")).toBe("_blank");
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  test("don't offer to speak a reply that is held", async () => {
+    await renderStarted();
+    await send("Hello");
+    toggleSaved("Bon dia!");
+    openSaved();
+    fireEvent.click(savedRow("Hello"));
+
+    hold("Bon dia!", 500);
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVE_TOGGLE })).toBeNull();
+  });
+
+  test("leave the conversation scrolled to where it was", async () => {
+    await renderStarted();
+    await send("Hello");
+    screen.getByRole("main").scrollTop = 120;
+
+    openSaved();
+    backToChat();
+
+    expect(screen.getByRole("main").scrollTop).toBe(120);
+  });
+
+  test("leave the conversation, the input and the translation toggle as they were", async () => {
+    await renderStarted();
+    await send("Hello");
+    fireEvent.click(translateToggle());
+    fireEvent.change(input(), { target: { value: "half a thought" } });
+
+    openSaved();
+    backToChat();
+
+    expect(screen.getByText("Hello")).toBeDefined();
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+    expect(input().value).toBe("half a thought");
+    expect(translateToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("don't interrupt a reply that is still on its way", async () => {
+    await renderStarted();
+    const arrive = coldStart();
+    await send("Hello");
+
+    openSaved();
+    await arrive(reply("Bon dia!"));
+    backToChat();
+
+    expect(screen.getByText("Bon dia!")).toBeDefined();
+    expect(screen.queryByText("Pensant…")).toBeNull();
   });
 });

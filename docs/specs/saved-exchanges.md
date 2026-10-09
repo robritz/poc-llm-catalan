@@ -90,7 +90,7 @@ Saving happens in the conversation: holding a reply already shows a speaker butt
 57. As a learner, I want a reply to keep speaking when I hold a different reply in the conversation, so that I can save one reply while listening to another.
 58. As a learner, I want a mute button in the header whenever something is speaking, so that I can stop the sound from wherever I am.
 59. As a learner, I want the mute button under the speaking reply as well, so that I can stop the sound where I started it.
-60. As a learner, I want starting a second sound to end the first, so that two replies never speak at once.
+60. As a learner, I want a second sound to take over from the first once it has loaded, so that two replies never speak at once and there is no silence while I wait.
 61. As a learner, I want the sound to stop when I delete the saved exchange that is speaking, so that I do not hear text that is no longer on screen.
 62. As a learner, I want the sound to stop when `Nova conversa` clears the reply that is speaking, so that I do not hear text that is no longer on screen.
 63. As a learner, I want the sound to carry on when I unsave the speaking reply from the conversation, so that unsaving does not interrupt what is still in front of me.
@@ -140,7 +140,10 @@ Saving happens in the conversation: holding a reply already shows a speaker butt
 ### Sound
 
 - There remains one audio player for the whole chat, and so one sound at a time.
-- A sound, once started, plays until it ends, until another sound is started, or until a mute button is pressed. Switching view, opening, closing or moving a row, and holding another reply do not stop it. This replaces the present behaviour in which holding a second reply stops the first reply's sound.
+- A sound, once started, plays until it ends, until a mute button is pressed, or until another sound that was asked for has loaded and takes over. It carries on while that other sound is loading. Switching view, opening, closing or moving a row, and holding another reply do not stop it.
+- Pressing mute while another sound is loading ends only the sound that is playing. The one that is loading still plays when it arrives.
+- The audio last loaded is kept. Asking again for the same source, after it was muted or has ended, plays that audio from the start without a second request to the speak route. Only one is kept: loading another replaces it.
+- Only the newest request to speak is ever played. One that finishes loading after a later request was made is discarded.
 - What is speaking is tracked separately from which reply is showing the held row. It identifies the one place the sound was started from: a particular reply in the conversation, or a particular saved exchange in the list.
 - While a sound is playing, a mute button named `Silencia` is shown in the header in both views. It is removed when the sound ends or is muted.
 - The place the sound was started from also shows a mute button in place of its speaker button for as long as it is speaking. In the conversation this stays under the speaking reply even when the held row has moved to another reply. In the list it shows whenever that row is open.

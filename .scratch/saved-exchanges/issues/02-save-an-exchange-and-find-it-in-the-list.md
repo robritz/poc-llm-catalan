@@ -8,7 +8,7 @@ The full design is in `docs/specs/saved-exchanges.md`; read "Identity and conten
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 Saving
 

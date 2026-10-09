@@ -48,7 +48,9 @@ Browser ──POST /api/chat──▶ Next.js ──POST /openai/v1/chat/complet
 
 ## Hearing a reply
 
-Press and hold a reply for half a second and a speaker button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it. While the reply is being spoken the button becomes a mute button, which ends the sound.
+Press and hold a reply for half a second and a speaker button appears under it. Tapping it plays the reply as speech; pressing anywhere else dismisses it. While the reply is being spoken the button becomes a mute button, which ends the sound, and a second mute button shows in the header.
+
+A reply keeps speaking until it ends, it is muted, or another reply has loaded and takes over; holding another reply doesn't stop it. A reply that was muted or has ended is spoken again from the audio already loaded, without a second request.
 
 ```
 Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa-TTS API
@@ -58,6 +60,20 @@ Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa
 The speech comes from a Matxa-TTS API, expected at `http://localhost:8000`. Once it is hosted, set `TTS_API_URL` to its base URL; nothing else needs to change, because the browser only ever calls `/api/speak`. That route is behind the secret phrase like the chat, and rejects text that is longer than the 2,000 characters the API accepts once normalized. The voice, format, steps and speaking rate are in `VOICE_SETTINGS` in `src/lib/tts.ts`.
 
 The model behind the API, [Matxa-TTS v2](https://huggingface.co/BSC-LT/matxa-tts-v2-ca-multiaccent-graphemes), reads graphemes: only Catalan letters and a little punctuation, with numbers written out in words. The API rejects anything else, so `/api/speak` first normalizes the reply in `src/lib/speech-text.ts`: numbers and a few symbols (`%`, `€`, `$`, `&`, `+`, `=`) become Catalan words, Markdown, links and emoji are removed, and each line ends as a sentence. Numbers are always read in the masculine ("dos", not "dues"), and abbreviations and ordinals are not expanded.
+
+## Saved exchanges
+
+An exchange is a message together with the reply to it. Holding a reply also shows a bookmark button beside the speaker button; tapping it saves the exchange, and tapping it again unsaves it. The greeting can't be saved, because the message it answers is never shown.
+
+The **Desats** button in the header swaps the conversation for the list of saved exchanges, newest first. Each row shows a message, and opens to show the reply; one row is open at a time. **Torna al xat** returns to the conversation, which is left as it was. The list can be opened as soon as the chat is unlocked, so a saved translation can be read while the model is still waking.
+
+Saved exchanges are kept in the browser's `localStorage`, with no network call, so they outlive the conversation and the session. That also means:
+
+- The list belongs to one browser on one device. Nothing is synced.
+- Clearing the site's data removes it.
+- iOS Safari may evict it after about a week without a visit, unless the app has been added to the home screen.
+
+Two exchanges are the same when both the message and the reply read the same, which is how a reply is known to be saved after a reload. All reading and writing of the list is in `src/lib/saved-exchanges.ts`.
 
 ## Secret phrase
 
@@ -76,10 +92,13 @@ This is a light gate to keep casual visitors out, not real authentication. Anyon
 | `src/lib/unlock.ts`                 | Secret phrase check and unlock cookie                           |
 | `src/lib/speech-text.ts`            | Normalizes a reply into text the TTS model can read             |
 | `src/lib/tts.ts`                    | Voice settings and the request to the Matxa-TTS API             |
+| `src/lib/saved-exchanges.ts`        | Reads and writes the saved exchanges in the browser's `localStorage` |
 | `src/app/api/unlock/route.ts`       | `POST /api/unlock`: checks the phrase and sets the cookie       |
 | `src/app/api/chat/route.ts`         | `POST /api/chat`: validates messages and streams the reply      |
 | `src/app/api/speak/route.ts`        | `POST /api/speak`: returns a reply as spoken audio              |
 | `src/app/chat.tsx`                  | Chat UI (client component)                                      |
+| `src/app/reply.tsx`                 | Formats the text of a reply                                     |
+| `src/app/saved-exchanges.tsx`       | The list of saved exchanges                                     |
 | `src/app/layout.tsx`                | Root layout and mobile viewport settings                        |
 | `src/app/robots.txt`                | Asks search engines not to crawl the site                       |
 

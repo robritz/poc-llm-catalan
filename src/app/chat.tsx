@@ -18,9 +18,8 @@ const GREETING_PROMPT = "say hello and include a random fact about catalonia.";
 // How long a reply must be held before the option to hear it appears.
 const HOLD_MS = 500;
 
-// A reply that offers to be spoken, after being held, or to be muted while
-// it is being spoken.
-type ListenStatus = "offered" | "loading" | "playing" | "failed";
+// How far a reply that was held has got with its offer to be spoken.
+type ListenStatus = "offered" | "loading" | "failed";
 type ListenOffer = { id: string; status: ListenStatus };
 
 // An empty WAV file. Playing it during the tap lets iOS Safari play the
@@ -100,6 +99,10 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [listenOffer, setListenOffer] = useState<ListenOffer | null>(null);
+  // The reply being spoken. It keeps its mute button wherever the offer goes.
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  // The number of the newest request to speak. An older one is never played.
+  const newestListen = useRef(0);
   const listenOfferRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // One player for every reply, and the object URL of the speech it holds.
@@ -151,10 +154,9 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     listenOfferRef.current?.scrollIntoView({ block: "nearest" });
   }, [listenOfferId]);
 
-  // Any press outside the offer dismisses it, except while the reply is
-  // being spoken: the mute button stays for as long as there is sound.
+  // Any press outside the offer dismisses it.
   useEffect(() => {
-    if (!listenOffer || listenOffer.status === "playing") return;
+    if (!listenOffer) return;
     const dismiss = (e: PointerEvent) => {
       if (!(e.target as Element).closest?.("[data-listen-offer]")) setListenOffer(null);
     };
@@ -164,11 +166,9 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
 
   function startHold(id: string) {
     clearTimeout(holdTimer.current);
-    holdTimer.current = setTimeout(() => {
-      // One reply at a time: the new offer replaces the mute button.
-      audioRef.current?.pause();
-      setListenOffer({ id, status: "offered" });
-    }, HOLD_MS);
+    // The reply being spoken already has its mute button.
+    if (id === speakingId) return;
+    holdTimer.current = setTimeout(() => setListenOffer({ id, status: "offered" }), HOLD_MS);
   }
 
   function cancelHold() {
@@ -179,26 +179,40 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     // Leaves the offer alone if it has moved to another reply in the meantime.
     const update = (status: ListenStatus | null) =>
       setListenOffer((offer) => (offer?.id === id ? status && { id, status } : offer));
+    const request = ++newestListen.current;
+    const isNewest = () => request === newestListen.current;
     update("loading");
+    // One sound at a time: this one replaces whatever is being spoken.
+    setSpeakingId(null);
     const audio = (audioRef.current ??= new Audio());
     audio.src = SILENCE;
     audio.play().catch(() => {});
     try {
       const url = await speechURL(text);
+      // Another reply was asked for, or the sound was ended, while this loaded.
+      if (!isNewest()) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       if (speechURLRef.current) URL.revokeObjectURL(speechURLRef.current);
       speechURLRef.current = url;
       audio.src = url;
-      audio.onended = () => update(null);
+      audio.onended = () => {
+        if (isNewest()) setSpeakingId(null);
+      };
       await audio.play();
-      update("playing");
+      update(null);
+      setSpeakingId(id);
     } catch {
-      update("failed");
+      if (isNewest()) update("failed");
     }
   }
 
   function mute() {
+    // Clearing the conversation must also drop a reply that is still loading.
+    newestListen.current++;
     audioRef.current?.pause();
-    setListenOffer(null);
+    setSpeakingId(null);
   }
 
   function startSession() {
@@ -239,19 +253,32 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
     >
       <header className="flex shrink-0 items-center justify-between border-b border-black/10 py-4 dark:border-white/10">
         <h1 className="text-lg font-semibold">Xat en català</h1>
-        {visibleMessages.length > 0 && (
-          <button
-            onClick={() => {
-              setMessages([]);
-              clearError();
-              mute();
-            }}
-            disabled={loading}
-            className="text-sm text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
-          >
-            Nova conversa
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* The mute button under the reply being spoken may be out of sight. */}
+          {speakingId && (
+            <button
+              onClick={mute}
+              aria-label="Silencia"
+              className="text-black/50 hover:text-black dark:text-white/50 dark:hover:text-white"
+            >
+              <Icon path={MUTE_ICON} />
+            </button>
+          )}
+          {visibleMessages.length > 0 && (
+            <button
+              onClick={() => {
+                setMessages([]);
+                clearError();
+                setListenOffer(null);
+                mute();
+              }}
+              disabled={loading}
+              className="text-sm text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
+            >
+              Nova conversa
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-6">
@@ -311,29 +338,31 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                   {messageText(m)}
                 </Markdown>
               </div>
-              {listenOffer?.id === m.id && (
-                <div ref={listenOfferRef} data-listen-offer className="flex items-center gap-2">
-                  {listenOffer.status === "playing" ? (
-                    <button onClick={mute} aria-label="Silencia" className={LISTEN_BUTTON_STYLE}>
-                      <Icon path={MUTE_ICON} />
-                    </button>
-                  ) : listenOffer.status === "loading" ? (
-                    <button disabled className={LISTEN_BUTTON_STYLE}>
-                      Carregant…
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => listen(m.id, messageText(m))}
-                      aria-label="Escolta"
-                      className={LISTEN_BUTTON_STYLE}
-                    >
-                      <Icon path={SPEAKER_ICON} />
-                    </button>
-                  )}
-                  {listenOffer.status === "failed" && (
-                    <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>
-                  )}
-                </div>
+              {speakingId === m.id ? (
+                <button onClick={mute} aria-label="Silencia" className={LISTEN_BUTTON_STYLE}>
+                  <Icon path={MUTE_ICON} />
+                </button>
+              ) : (
+                listenOffer?.id === m.id && (
+                  <div ref={listenOfferRef} data-listen-offer className="flex items-center gap-2">
+                    {listenOffer.status === "loading" ? (
+                      <button disabled className={LISTEN_BUTTON_STYLE}>
+                        Carregant…
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => listen(m.id, messageText(m))}
+                        aria-label="Escolta"
+                        className={LISTEN_BUTTON_STYLE}
+                      >
+                        <Icon path={SPEAKER_ICON} />
+                      </button>
+                    )}
+                    {listenOffer.status === "failed" && (
+                      <p className="text-sm text-red-600">No s&apos;ha pogut reproduir l&apos;àudio.</p>
+                    )}
+                  </div>
+                )
               )}
             </div>
           ),

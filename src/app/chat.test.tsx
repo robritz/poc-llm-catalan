@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import Chat from "./chat";
@@ -119,6 +119,22 @@ async function clickListen() {
     fireEvent.click(screen.getByRole("button", { name: LISTEN_BUTTON }));
   });
   await settle();
+}
+
+// The mute button under the reply being spoken, if there is one.
+function replyMute() {
+  return within(screen.getByRole("main")).queryByRole("button", { name: MUTE_BUTTON });
+}
+
+// Whether the mute button in the conversation sits above the given reply.
+function replyMuteIsAbove(text: string) {
+  const position = replyMute()!.compareDocumentPosition(screen.getByText(text));
+  return (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
+// The mute button in the header, if there is one.
+function headerMute() {
+  return within(screen.getByRole("banner")).queryByRole("button", { name: MUTE_BUTTON });
 }
 
 // The text of each conversation sent to the model.
@@ -544,26 +560,31 @@ describe("hearing a reply", () => {
     hold("Hola!", 500);
 
     await clickListen();
-    expect(screen.queryByRole("button", { name: MUTE_BUTTON })).toBeNull();
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).toBeNull();
 
     await act(async () => resolve(new Response("wav")));
     await settle();
 
-    const button = screen.getByRole("button", { name: MUTE_BUTTON });
+    const button = replyMute()!;
     expect(button.textContent).toBe("");
     expect(button.querySelector("svg")).not.toBeNull();
   });
 
-  test("ends the sound when it is muted", async () => {
+  test.each([
+    ["under the reply", replyMute],
+    ["in the header", headerMute],
+  ])("ends the sound when it is muted %s", async (_, muteButton) => {
     await renderStarted();
     hold("Hola!", 500);
     await clickListen();
     expect(FakeAudio.current.paused).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: MUTE_BUTTON }));
+    fireEvent.click(muteButton()!);
 
     expect(FakeAudio.current.paused).toBe(true);
-    expect(screen.queryByRole("button", { name: MUTE_BUTTON })).toBeNull();
+    expect(replyMute()).toBeNull();
+    expect(headerMute()).toBeNull();
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
@@ -574,22 +595,23 @@ describe("hearing a reply", () => {
 
     act(() => FakeAudio.current.onended!());
 
-    expect(screen.queryByRole("button", { name: MUTE_BUTTON })).toBeNull();
+    expect(replyMute()).toBeNull();
     expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
-  test("keeps the mute button when something else is pressed", async () => {
+  test("keeps the mute buttons when something else is pressed", async () => {
     await renderStarted();
     hold("Hola!", 500);
     await clickListen();
 
     fireEvent.pointerDown(input());
 
-    expect(screen.getByRole("button", { name: MUTE_BUTTON })).toBeDefined();
+    expect(replyMute()).not.toBeNull();
+    expect(headerMute()).not.toBeNull();
     expect(FakeAudio.current.paused).toBe(false);
   });
 
-  test("ends the sound when another reply is held or the conversation is cleared", async () => {
+  test("keeps speaking a reply while another reply is held", async () => {
     await renderStarted();
     await send("Hello");
     hold("Hola!", 500);
@@ -597,16 +619,96 @@ describe("hearing a reply", () => {
 
     hold("Bon dia!", 500);
 
-    expect(FakeAudio.current.paused).toBe(true);
-    expect(screen.queryByRole("button", { name: MUTE_BUTTON })).toBeNull();
+    expect(FakeAudio.current.paused).toBe(false);
+    // The mute button stays under the reply being spoken, above the next reply.
+    expect(replyMuteIsAbove("Bon dia!")).toBe(true);
     expect(screen.getByRole("button", { name: LISTEN_BUTTON })).toBeDefined();
+  });
 
+  test("speaks one reply at a time: a second reply takes over from the first", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Hola!", 500);
+    await clickListen();
+
+    speech = new Response("wav");
+    hold("Bon dia!", 500);
+    await clickListen();
+
+    expect(played).toHaveLength(2);
+    // The only mute button in the conversation is now under the second reply.
+    expect(replyMuteIsAbove("Bon dia!")).toBe(false);
+  });
+
+  test("doesn't speak a reply that finishes loading after another was asked for", async () => {
+    await renderStarted();
+    await send("Hello");
+    let resolve!: (res: Response) => void;
+    speech = new Promise((r) => (resolve = r));
+    hold("Hola!", 500);
+    await clickListen();
+
+    speech = new Response("wav");
+    hold("Bon dia!", 500);
+    await clickListen();
+    await act(async () => resolve(new Response("wav")));
+    await settle();
+
+    expect(played).toHaveLength(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Carregant…" })).toBeNull();
+    expect(replyMuteIsAbove("Bon dia!")).toBe(false);
+  });
+
+  test("shows a mute button in the header for as long as a reply is being spoken", async () => {
+    await renderStarted();
+    expect(headerMute()).toBeNull();
+    hold("Hola!", 500);
+    await clickListen();
+
+    expect(headerMute()).not.toBeNull();
+
+    act(() => FakeAudio.current.onended!());
+
+    expect(headerMute()).toBeNull();
+  });
+
+  test("ends the sound when the conversation is cleared", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Bon dia!", 500);
     await clickListen();
     expect(FakeAudio.current.paused).toBe(false);
 
     fireEvent.click(screen.getByText("Nova conversa"));
 
     expect(FakeAudio.current.paused).toBe(true);
+    expect(headerMute()).toBeNull();
+  });
+
+  test("withdraws an unused offer, but not the mute buttons, when something else is pressed", async () => {
+    await renderStarted();
+    await send("Hello");
+    hold("Hola!", 500);
+    await clickListen();
+    hold("Bon dia!", 500);
+
+    fireEvent.pointerDown(input());
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
+    expect(replyMute()).not.toBeNull();
+    expect(headerMute()).not.toBeNull();
+  });
+
+  test("doesn't offer to speak the reply that is being spoken, even once it ends", async () => {
+    await renderStarted();
+    hold("Hola!", 500);
+    await clickListen();
+
+    hold("Hola!", 500);
+    act(() => FakeAudio.current.onended!());
+
+    expect(screen.queryByRole("button", { name: LISTEN_BUTTON })).toBeNull();
   });
 
   test("says so when the reply can't be spoken", async () => {

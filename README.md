@@ -29,7 +29,7 @@ Open http://localhost:3000.
 | `RUNPOD_ENDPOINT_ID` | The endpoint ID, e.g. `xdtr2cvjsqwsuu` from `api.runpod.ai/v2/<id>` |
 | `CHAT_SECRET_PHRASE` | Phrase users must type to unlock the chat (see below)           |
 | `RUNPOD_MODEL`       | Optional. The name the endpoint serves the model under, if it isn't `BSC-LT/salamandra-7b-instruct-2606` |
-| `TTS_API_URL`        | Optional. Base URL of the Matxa-TTS API that speaks replies (see below). Defaults to `http://localhost:8000` |
+| `TTS_API_URL`        | Optional. Base URL of the [Matxa-TTS API](https://github.com/robritz/matxa-tts-api) that speaks replies (see below). Defaults to `http://localhost:8000` |
 
 All are read only on the server, so the API key never reaches the browser. `.env.local` is git-ignored.
 
@@ -57,7 +57,7 @@ Browser ──POST /api/speak──▶ Next.js ──POST /v1/tts──▶ Matxa
         ◀── audio/wav ──────         ◀── audio/wav ───
 ```
 
-The speech comes from a Matxa-TTS API, expected at `http://localhost:8000`. Once it is hosted, set `TTS_API_URL` to its base URL; nothing else needs to change, because the browser only ever calls `/api/speak`. That route is behind the secret phrase like the chat, and rejects text that is longer than the 2,000 characters the API accepts once normalized. The voice, format, steps and speaking rate are in `VOICE_SETTINGS` in `src/lib/tts.ts`.
+The speech comes from the [Matxa-TTS API](https://github.com/robritz/matxa-tts-api), a separate service that this app does not include. It is expected at `http://localhost:8000`. Once it is hosted, set `TTS_API_URL` to its base URL; nothing else needs to change, because the browser only ever calls `/api/speak`. That route is behind the secret phrase like the chat, and rejects text that is longer than the 2,000 characters the API accepts once normalized. The voice, format, steps and speaking rate are in `VOICE_SETTINGS` in `src/lib/tts.ts`.
 
 When the page loads, the browser asks `GET /api/speak/health` whether replies can be spoken, and the server asks the TTS API's `/health` in turn. If the API reports an error, can't be reached, or takes more than five seconds to answer, the speaker buttons are hidden, in the conversation and among the saved exchanges, until the page is reloaded; replies can still be saved. The route is behind the secret phrase too, so a locked page asks once it has been unlocked.
 

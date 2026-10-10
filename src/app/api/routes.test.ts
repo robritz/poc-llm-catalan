@@ -2,9 +2,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 import { chatModel } from "@/lib/runpod";
-import { synthesize } from "@/lib/tts";
+import { isSpeechAvailable, synthesize } from "@/lib/tts";
 import { isUnlocked, tryUnlock } from "@/lib/unlock";
 import { POST as postChat } from "./chat/route";
+import { GET as getSpeakHealth } from "./speak/health/route";
 import { POST as postSpeak } from "./speak/route";
 import { POST as postUnlock } from "./unlock/route";
 
@@ -208,6 +209,28 @@ describe("POST /api/speak", () => {
     const res = await postSpeak(post("/api/speak", { text: "Bon dia" }));
     expect(res.status).toBe(502);
     expect(await res.text()).toBe("Upstream error");
+  });
+});
+
+describe("GET /api/speak/health", () => {
+  test("returns 401 without reaching the TTS API when locked", async () => {
+    vi.mocked(isUnlocked).mockResolvedValue(false);
+    const res = await getSpeakHealth();
+    expect(res.status).toBe(401);
+    expect(await res.text()).toBe("Locked");
+    expect(isSpeechAvailable).not.toHaveBeenCalled();
+  });
+
+  test("returns 200 when replies can be spoken", async () => {
+    vi.mocked(isSpeechAvailable).mockResolvedValue(true);
+    const res = await getSpeakHealth();
+    expect(res.status).toBe(200);
+  });
+
+  test("returns 503 when replies can't be spoken", async () => {
+    vi.mocked(isSpeechAvailable).mockResolvedValue(false);
+    const res = await getSpeakHealth();
+    expect(res.status).toBe(503);
   });
 });
 

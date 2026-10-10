@@ -10,6 +10,7 @@ const LISTEN_BUTTON = "Escolta";
 const MUTE_BUTTON = "Silencia";
 const TRANSLATE_TOGGLE = "Tradueix";
 const SAVE_TOGGLE = "Desa";
+const NEW_BUTTON = "Nova conversa";
 const SAVED_BUTTON = "Desats";
 const BACK_BUTTON = "Torna al xat";
 const DELETE_BUTTON = "Suprimeix";
@@ -430,11 +431,23 @@ describe("chatting", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("Nova conversa and Desats are icons that carry their names", async () => {
+    await renderStarted();
+    await send("Hello");
+
+    for (const name of [NEW_BUTTON, SAVED_BUTTON]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.textContent).toBe("");
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.title).toBe(name);
+    }
+  });
+
   test("Nova conversa clears the conversation without restarting the session", async () => {
     await renderStarted();
     await send("Hello");
 
-    fireEvent.click(screen.getByText("Nova conversa"));
+    fireEvent.click(screen.getByRole("button", { name: NEW_BUTTON }));
 
     expect(screen.queryByText("Hola!")).toBeNull();
     expect(screen.queryByText("Hello")).toBeNull();
@@ -877,7 +890,7 @@ describe("hearing a reply", () => {
     await clickListen();
     expect(FakeAudio.current.paused).toBe(false);
 
-    fireEvent.click(screen.getByText("Nova conversa"));
+    fireEvent.click(screen.getByRole("button", { name: NEW_BUTTON }));
 
     expect(FakeAudio.current.paused).toBe(true);
     expect(headerMute()).toBeNull();
@@ -1110,7 +1123,7 @@ describe("saving an exchange", () => {
     await renderStarted();
     await send("Hello");
     toggleSaved("Bon dia!");
-    fireEvent.click(screen.getByText("Nova conversa"));
+    fireEvent.click(screen.getByRole("button", { name: NEW_BUTTON }));
 
     openSaved();
     expect(savedMessages()).toEqual(["Hello"]);
@@ -1157,7 +1170,7 @@ describe("the saved exchanges", () => {
 
     expect(screen.queryByText("Bon dia!")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByText("Nova conversa")).toBeNull();
+    expect(screen.queryByRole("button", { name: NEW_BUTTON })).toBeNull();
     expect(screen.queryByRole("button", { name: SAVED_BUTTON })).toBeNull();
   });
 
@@ -1660,7 +1673,7 @@ describe("one sound across the conversation and the saved exchanges", () => {
     await clickListen();
     backToChat();
 
-    fireEvent.click(screen.getByText("Nova conversa"));
+    fireEvent.click(screen.getByRole("button", { name: NEW_BUTTON }));
 
     expect(FakeAudio.current.paused).toBe(false);
     expect(headerMute()).not.toBeNull();
@@ -1675,7 +1688,7 @@ describe("one sound across the conversation and the saved exchanges", () => {
     await clickListen();
     backToChat();
 
-    fireEvent.click(screen.getByText("Nova conversa"));
+    fireEvent.click(screen.getByRole("button", { name: NEW_BUTTON }));
     await act(async () => resolve(new Response("wav")));
     await settle();
 

@@ -80,6 +80,10 @@ async function isSpeechHealthy(): Promise<boolean> {
 const BOOKMARK_ICON =
   "M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15-5-2.18L7 18V5h10v13z";
 const BOOKMARKED_ICON = "M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z";
+const NEW_CONVERSATION_ICON =
+  "M22 4c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4zm-5 7h-4v4h-2v-4H7V9h4V5h2v4h4v2z";
+const SAVED_ICON =
+  "M19 18l2 1V3c0-1.1-.9-2-2-2H8.99C7.89 1 7 1.9 7 3h10c1.1 0 2 .9 2 2v13zM15 5H5c-1.1 0-2 .9-2 2v16l7-3 7 3V7c0-1.1-.9-2-2-2z";
 
 async function unlock(phrase: string): Promise<boolean> {
   const res = await fetch("/api/unlock", {
@@ -420,9 +424,11 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                 if (!isSavedSource(speakingId)) mute();
               }}
               disabled={loading}
-              className="text-sm text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
+              aria-label="Nova conversa"
+              title="Nova conversa"
+              className="text-black/50 hover:text-black disabled:opacity-40 dark:text-white/50 dark:hover:text-white"
             >
-              Nova conversa
+              <Icon path={NEW_CONVERSATION_ICON} />
             </button>
           )}
           {unlocked && (
@@ -432,9 +438,11 @@ export default function Chat({ initiallyUnlocked }: { initiallyUnlocked: boolean
                 setSavedListen((listen) => (listen?.status === "failed" ? null : listen));
                 setShowingSaved(!showingSaved);
               }}
+              aria-label={showingSaved ? undefined : "Desats"}
+              title={showingSaved ? undefined : "Desats"}
               className="text-sm text-black/50 hover:text-black dark:text-white/50 dark:hover:text-white"
             >
-              {showingSaved ? "Torna al xat" : "Desats"}
+              {showingSaved ? "Torna al xat" : <Icon path={SAVED_ICON} />}
             </button>
           )}
         </div>
